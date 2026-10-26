@@ -19,6 +19,52 @@ independently of SDK releases, using a tool such as `dnx`.
 The SDK source baseline for this prototype is `c70b3856e7948678daa3950ec5517759754bf47c`.
 Compare the prototype delta against that baseline, not an older fork's `origin/main`.
 
+### Components and invocation paths
+
+`server-host` is a generated prototype directory, **not a component or service added
+to the .NET SDK**. It contains a small native launcher, `fastbuild-server.exe`, and
+unchanged server files copied from the `Microsoft.FastBuild` package. The launcher
+loads the .NET runtime and starts the package's managed `fastbuild-server.dll`; it
+does not contain a different build engine or NativeAOT-compiled server.
+
+| Component | Function | Invoked by |
+| --- | --- | --- |
+| Custom SDK CLI | Detects agent context, checks eligibility, and selects stock or accelerated execution. | The ordinary `dotnet` host after SDK selection; NativeAOT build handling retains its managed fallback. |
+| Packaged `dotnet-fastbuild` client | Makes incremental-build decisions and orchestrates work. | The [SDK dispatcher](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs), with translated arguments and the selected SDK/host context. |
+| Generated `fastbuild-server.exe` launcher | Starts the unchanged managed server using the Windows launch workaround described below. | The FastBuild client, through `FASTBUILD_SERVER_EXE`, when a resident server needs starting. |
+| Packaged `fastbuild-server.dll` | Hosts MSBuild from the selected SDK and reuses its evaluation/build state across requests. | The launcher at startup; subsequent build requests arrive from the client over a local named pipe. |
+
+The relevant flows are:
+
+1. **Provisioning:** [Prototype.ps1](../../.github/skills/agent-mode-buildx/scripts/Prototype.ps1)
+   builds the custom SDK and installs the pinned tool.
+   [CreatePackagedServerHost.cs](../../.github/skills/agent-mode-buildx/scripts/CreatePackagedServerHost.cs)
+   copies the package's server files and generates the launcher from the bootstrap
+   SDK's apphost template. This is an ordinary managed application launch, not another
+   SDK entry point.
+2. **Accelerated build:** `dotnet build` reaches the SDK dispatcher, which starts the
+   packaged client with `--server`. The client connects to an existing compatible
+   workspace server or starts the launcher with pipe/workspace/SDK arguments. The
+   dispatcher supplies `FASTBUILD_SDK_PATH`; the client forwards it as `--sdk`, and the
+   server registers that SDK's MSBuild. Build requests, diagnostics, and results pass
+   over the named pipe. The client returns an exit code to the SDK, which returns it
+   to the caller without replaying the operation through another engine.
+3. **No-op and stock paths:** an up-to-date client can return without compiling or
+   starting a server. Unsupported SDK invocations or disabled/unprovisioned Agent Mode
+   stay with the SDK handler and do not launch this client or server. The package also
+   owns its own decisions to spawn ordinary SDK operations; nested SDK invocations
+   inherit the dispatch bypass to prevent recursion.
+4. **Shutdown:** the prototype's `Stop` action asks the client to stop this sample's
+   server through its pipe and checks that it exits. It separately shuts down the
+   private SDK's MSBuild worker/compiler servers; those are not the FastBuild server.
+   Without an explicit stop, the FastBuild server has its own idle timeout.
+
+The pinned package sources define [client startup and IPC][fastbuild-client],
+[server SDK registration][fastbuild-server], and
+[resident MSBuild state and lifetime][fastbuild-loop]. The SDK borrows the apphost
+template for this local workaround; ownership of the resident server remains with
+FastBuild.
+
 ### Setup, run, and cleanup
 
 Use a local checkout of the .NET SDK repository (`dotnet/sdk`) on Windows, PowerShell 7, the
@@ -79,7 +125,7 @@ three standard streams are replaced. An absolute-host shell-detached launch or a
 RID-specific packaged apphost needs upstream qualification. The local launcher is not
 that shipping fix. `--no-server` is another supported mitigation but loses the resident
 MSBuild benefit; it is deliberately not used by this prototype.
-The [packaged launcher source](https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild%2FServer%2FServerClient.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd)
+The [packaged launcher source][fastbuild-client]
 shows the managed versus native/apphost launch branches at the package's source commit.
 
 `Verify` creates a self-contained sample under `artifacts\agent-mode\sample`, with
@@ -279,3 +325,7 @@ Intel macOS and Linux need separate execution evidence before claiming support.
 validation pass, assuming Mac access, prerequisites, and feed authentication are ready.
 This is not a deadline; an upstream package/daemon issue or additional platform
 qualification can extend the work.
+
+[fastbuild-client]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild%2FServer%2FServerClient.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
+[fastbuild-server]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild.Server%2FServerHost.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
+[fastbuild-loop]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild.Server%2FBuildLoop.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
