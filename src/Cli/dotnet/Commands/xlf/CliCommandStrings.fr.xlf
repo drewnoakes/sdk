@@ -72,6 +72,21 @@
         <target state="translated">Commandes supplémentaires d'outils groupés :</target>
         <note />
       </trans-unit>
+      <trans-unit id="AgentModeBuildxActivated">
+        <source>Agent mode: using experimental buildx (Microsoft.FastBuild).</source>
+        <target state="new">Agent mode: using experimental buildx (Microsoft.FastBuild).</target>
+        <note>{Locked="buildx"} {Locked="Microsoft.FastBuild"}</note>
+      </trans-unit>
+      <trans-unit id="AgentModeBuildxInvalidPath">
+        <source>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</source>
+        <target state="new">Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</target>
+        <note>{0} is an environment variable name. {Locked="buildx"}</note>
+      </trans-unit>
+      <trans-unit id="AgentModeInvalidMode">
+        <source>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</source>
+        <target state="new">Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</target>
+        <note>{0} is the supplied value; {1} is an environment variable name. {Locked="auto"} {Locked="on"} {Locked="off"}</note>
+      </trans-unit>
       <trans-unit id="AllowPackageDowngradeOptionDescription">
         <source>Allow package downgrade when installing a .NET tool package.</source>
         <target state="translated">Autoriser le passage à une version antérieure du package lors de l’installation d’un package d’outils .NET.</target>

@@ -156,6 +156,18 @@
   <data name="AdManifestUpdated" xml:space="preserve">
     <value>Updated advertising manifest {0}.</value>
   </data>
+  <data name="AgentModeBuildxActivated" xml:space="preserve">
+    <value>Agent mode: using experimental buildx (Microsoft.FastBuild).</value>
+    <comment>{Locked="buildx"} {Locked="Microsoft.FastBuild"}</comment>
+  </data>
+  <data name="AgentModeBuildxInvalidPath" xml:space="preserve">
+    <value>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</value>
+    <comment>{0} is an environment variable name. {Locked="buildx"}</comment>
+  </data>
+  <data name="AgentModeInvalidMode" xml:space="preserve">
+    <value>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</value>
+    <comment>{0} is the supplied value; {1} is an environment variable name. {Locked="auto"} {Locked="on"} {Locked="off"}</comment>
+  </data>
   <data name="AllowPackageDowngradeOptionDescription" xml:space="preserve">
     <value>Allow package downgrade when installing a .NET tool package.</value>
   </data>

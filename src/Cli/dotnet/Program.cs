@@ -140,7 +140,7 @@ public class Program
         TelemetryEventEntry.SendFiltered(new ParseResultWithGlobalJsonState(parseResult, s_globalJsonState));
         if (parseResult.CanBeInvoked())
         {
-            return CommandInvocation.ExecuteInternalCommand(parseResult);
+            return CommandInvocation.ExecuteInternalCommand(parseResult, args);
         }
 
         try

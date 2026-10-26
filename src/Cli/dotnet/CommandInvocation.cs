@@ -24,13 +24,20 @@ internal static class CommandInvocation
     ///  converted to an exit code, except that under NativeAOT a <see cref="CommandNotAvailableInAotException"/>
     ///  is allowed to propagate so the bridge can fall back to hosting the managed CLI.
     /// </summary>
-    internal static int ExecuteInternalCommand(ParseResult parseResult)
+    internal static int ExecuteInternalCommand(ParseResult parseResult, string[]? arguments = null)
     {
         Debug.Assert(parseResult.CanBeInvoked());
         int exitCode;
         using var _ = Activities.Source.StartActivity("invocation");
         try
         {
+#if !CLI_AOT
+            // NativeAOT already defers build execution to this managed invocation boundary.
+            if (AgentModeBuildxDispatcher.TryExecute(parseResult, arguments, out exitCode))
+            {
+                return exitCode;
+            }
+#endif
             exitCode = Parser.Invoke(parseResult);
             if (parseResult.Errors.Any())
             {
