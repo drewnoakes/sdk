@@ -27,7 +27,8 @@ do not remove the platform guard without completing the port and real-platform c
    add credentials to the repository.
    There is no automatic update: the checked-in script pins the version and package
    SHA-256, and setup/run reject a mismatched installation. Change the pins only as an
-   explicit upgrade followed by the real-package verification.
+   explicit upgrade using the guide's
+   [qualification and rollback procedure](../../../documentation/project-docs/agent-mode.md#updating-the-pinned-buildx-package).
 2. Run the same script with `Verify`. Require its real-package builds and output checks
    to pass; the activation banner or a fake provider alone is not end-to-end evidence.
    Inspect `artifacts\agent-mode\verification.json` and the adjacent per-command logs.

@@ -137,6 +137,72 @@ Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\server
   artifacts\agent-mode\long-path -Recurse -Force
 ```
 
+### Updating the pinned buildx package
+
+Treat a version change as an explicit compatibility update, not routine demo setup.
+A newer feed version is a candidate, not automatically a supported version.
+
+1. **Discover without updating.** Query the authorized feed, including prereleases:
+
+   ```powershell
+   $feed = 'https://devdiv.pkgs.visualstudio.com/_packaging/dotnet-core-internal-tooling/nuget/v3/index.json'
+   .\.dotnet\dotnet.exe package search Microsoft.FastBuild --source $feed --prerelease --exact-match --format json
+   ```
+
+2. **Inspect an isolated candidate.** Deliberately choose an exact version from that
+   result. The example below uses the current pin; change it only when evaluating a
+   different release. Use an empty candidate directory, leaving the working demo alone:
+
+   ```powershell
+   $candidateVersion = '11.9.10-preview'
+   $candidateDirectory = Join-Path (Get-Location) "artifacts\agent-mode\candidates\$candidateVersion"
+   if (Test-Path -LiteralPath $candidateDirectory) {
+     throw 'Choose an empty candidate directory; do not overwrite a previous qualification.'
+   }
+   .\.dotnet\dotnet.exe tool install Microsoft.FastBuild --tool-path $candidateDirectory `
+     --source $feed --version "[$candidateVersion]" --no-cache
+   if ($LASTEXITCODE -ne 0) { throw 'Candidate package acquisition failed.' }
+   .\.dotnet\dotnet.exe tool list --tool-path $candidateDirectory --format json
+   $candidatePackage = Join-Path $candidateDirectory ".store\microsoft.fastbuild\$candidateVersion\microsoft.fastbuild\$candidateVersion\microsoft.fastbuild.$candidateVersion.nupkg"
+   Get-FileHash -LiteralPath $candidatePackage -Algorithm SHA256
+   & (Join-Path $candidateDirectory 'dotnet-fastbuild.exe') --help
+   ```
+
+   Use the existing credential provider (`--interactive` if needed), never an embedded
+   token. Inspect the package's source/release changes, tool command, runtime requirement,
+   supported arguments, and server payload layout. In particular, this prototype assumes
+   `dotnet-fastbuild` and `tools\net10.0\any\server`; a renamed command or changed layout
+   requires corresponding implementation changes, not just new version/hash values.
+   Reassess whether the Windows server-launch workaround is still necessary.
+
+3. **Preserve rollback, then update the pins.** Before editing, run the existing
+   `Prototype.ps1 Stop` with the old pins. Save both old pin values and the last
+   successful verification/logs, then move
+   `artifacts\agent-mode\tools` to a clearly named, unused backup directory. Retain the
+   old version's `server-host` directory. Update `$packageVersion` and `$packageSha256`
+   in [Prototype.ps1](../../.github/skills/agent-mode-buildx/scripts/Prototype.ps1) to the
+   candidate's exact version and acquired SHA-256. Update this guide and the
+   [skill](../../.github/skills/agent-mode-buildx/SKILL.md), including versioned example
+   paths. Setup intentionally rejects an installed tool that does not match the pins;
+   changing the constants without moving the old installation aside is not an upgrade.
+
+4. **Provision and qualify before a demo.** Run `Setup` to install the new exact pin and
+   regenerate its server launcher, then `Verify` to exercise the real package. Require
+   the actual resident engine, repeated/edited outputs, selected SDK, supported argument
+   mapping, stock controls, failure propagation, capture completion, and cleanup to pass.
+   Run affected SDK regression tests through the
+   [run-tests workflow](../../.github/skills/run-tests/SKILL.md), especially
+   `AgentModeBuildxTests` when invocation or routing changes. Retain the new
+   `verification.json` and logs with their version, hash, architecture, and server
+   identity. Qualify on every platform that will be used for the demo.
+
+5. **Roll back if qualification fails.** Stop the candidate while its pins are still
+   active, move its tool installation aside, restore the previous version/hash values
+   and documentation, and move the saved working tool directory back to
+   `artifacts\agent-mode\tools`. The versioned old launcher remains available. Re-run
+   `Verify` before using the restored demo; do not accept a failing candidate merely
+   because it is the newest package.
+
 ### Routing contract
 
 The [dispatcher](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs) runs at the
