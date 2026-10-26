@@ -21,10 +21,11 @@ Compare the prototype delta against that baseline, not an older fork's `origin/m
 
 ### Setup, run, and cleanup
 
-Use a Windows SDK worktree, PowerShell 7, the
+Use a local checkout of the .NET SDK repository (`dotnet/sdk`) on Windows, PowerShell 7, the
 [SDK build prerequisites](developer-guide.md#prerequisites), and existing authorized
 Azure Artifacts access to the `dotnet-core-internal-tooling` feed. Never put tokens in
 scripts, command lines, or checked-in NuGet configuration.
+A regular clone or a Git worktree is suitable; using a worktree is not required.
 
 From the repository root:
 

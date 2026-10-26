@@ -16,10 +16,10 @@ Mac demo enablement is tracked in the guide's
 [cross-platform follow-up checklist](../../../documentation/project-docs/agent-mode.md#cross-platform-demo-setup-macos-first);
 do not remove the platform guard without completing the port and real-platform checks.
 
-1. From the SDK worktree, run
+1. From the root of your `dotnet/sdk` checkout on Windows (a regular clone or Git worktree), run
    `pwsh -NoProfile -File .github\skills\agent-mode-buildx\scripts\Prototype.ps1 Setup`.
    It bootstraps the SDK pinned by `global.json`, installs exactly
-   **Microsoft.FastBuild 11.9.10-preview** into this worktree, builds a Release redist,
+   **Microsoft.FastBuild 11.9.10-preview** into that checkout, builds a Release redist,
    and creates the documented native apphost
    for the unchanged packaged server. Keep that scoped `FASTBUILD_SERVER_EXE` mitigation;
    otherwise redirected command capture can wait for daemon idle expiry. Add `-Interactive` only when the
