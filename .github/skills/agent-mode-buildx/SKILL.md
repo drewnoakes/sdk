@@ -11,16 +11,23 @@ license: MIT
 
 This is a Windows/PowerShell 7 prototype with explicit internal-package provisioning,
 not the future public download/update service. Read the
-[setup and behavior contract](../../../documentation/project-docs/agent-mode-buildx.md).
+[Agent Mode overview and buildx integration guide](../../../documentation/project-docs/agent-mode.md#buildx-integration).
+Mac demo enablement is tracked in the guide's
+[cross-platform follow-up checklist](../../../documentation/project-docs/agent-mode.md#cross-platform-demo-setup-macos-first);
+do not remove the platform guard without completing the port and real-platform checks.
 
 1. From the SDK worktree, run
    `pwsh -NoProfile -File .github\skills\agent-mode-buildx\scripts\Prototype.ps1 Setup`.
-   It bootstraps the SDK pinned by `global.json`, installs an exact internal tool version
-   into this worktree, builds a Release redist, and creates the documented native apphost
+   It bootstraps the SDK pinned by `global.json`, installs exactly
+   **Microsoft.FastBuild 11.9.10-preview** into this worktree, builds a Release redist,
+   and creates the documented native apphost
    for the unchanged packaged server. Keep that scoped `FASTBUILD_SERVER_EXE` mitigation;
    otherwise redirected command capture can wait for daemon idle expiry. Add `-Interactive` only when the
    existing Azure Artifacts credential provider needs sign-in. Do not copy tokens or
    add credentials to the repository.
+   There is no automatic update: the checked-in script pins the version and package
+   SHA-256, and setup/run reject a mismatched installation. Change the pins only as an
+   explicit upgrade followed by the real-package verification.
 2. Run the same script with `Verify`. Require its real-package builds and output checks
    to pass; the activation banner or a fake provider alone is not end-to-end evidence.
    Inspect `artifacts\agent-mode\verification.json` and the adjacent per-command logs.

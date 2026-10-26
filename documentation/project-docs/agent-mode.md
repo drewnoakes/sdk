@@ -1,4 +1,14 @@
-# Local .NET Agent Mode / buildx prototype
+# .NET Agent Mode
+
+Agent Mode lets the .NET SDK apply toolchain improvements when it detects an agent
+session, without requiring the agent to learn replacement commands.
+
+Buildx is the first integration in this prototype, not the definition of Agent Mode.
+Additional toolchain improvements can be integrated over time. The goal is a faster
+agent development loop while preserving normal SDK selection, correct outputs,
+diagnostics, failure behavior, and an explicit opt-out.
+
+## Buildx integration
 
 Ordinary `dotnet build` can use the experimental buildx engine inside an agent session.
 This prototype explicitly provisions the internal `Microsoft.FastBuild` package; its
@@ -9,7 +19,7 @@ independently of SDK releases, using a tool such as `dnx`.
 The SDK source baseline for this prototype is `c70b3856e7948678daa3950ec5517759754bf47c`.
 Compare the prototype delta against that baseline, not an older fork's `origin/main`.
 
-## Setup, run, and cleanup
+### Setup, run, and cleanup
 
 Use a Windows SDK worktree, PowerShell 7, the
 [SDK build prerequisites](developer-guide.md#prerequisites), and existing authorized
@@ -39,6 +49,15 @@ requires sign-in. It uses the bootstrap SDK pinned by `global.json` and runs
 Use `-Configuration Debug` consistently for a Debug environment. Do not copy a different
 experiment's SDK or loose accelerator binaries into this layout.
 
+The checked-in `Prototype.ps1` is the pin for this isolated `--tool-path` installation:
+`--version [11.9.10-preview]`, with package SHA-256
+`7D05F8ADB468576C9D80E7BAA092037B1CAB38DFC7AD9D5B467831367555173B`.
+It never runs `tool update` or selects the latest version. Setup and subsequent actions
+check the installed tool's reported version and package hash, failing on drift rather
+than silently accepting or updating it. Upgrading requires an explicit edit to both
+checked-in pins followed by the real-package verification. The repository-wide tool
+manifest is not used for this private installation.
+
 The setup also creates a native apphost for the **unchanged packaged server DLLs** under
 `artifacts\agent-mode\server-host\11.9.10-preview`, using the bootstrap SDK's apphost
 template and `Microsoft.NET.HostModel`. Verification and the child shell explicitly set
@@ -66,6 +85,8 @@ shows the managed versus native/apphost launch branches at the package's source 
 `global.json` pinned to the built SDK and repository build imports isolated. It checks
 real initial/repeated/edited builds, output execution, SDK identity, both CLI entry modes,
 another telemetry-recognized agent, telemetry opt-out, stock controls, and failures.
+Each verification resets only its private `artifacts\agent-mode\cache` so the initial
+build is a cold resident-engine check, independent of previous demo/cache state.
 It retains command logs and exact SDK/package identity in
 `artifacts\agent-mode\verification.json`, then stops that sample's resident server.
 The sample's framework comes from the built SDK's bundled consumer-version metadata,
@@ -95,6 +116,7 @@ pwsh -NoProfile -Command {
   $env:PATH = "$repo\artifacts\bin\redist\Release\dotnet;$env:PATH"
   $env:DOTNET_AGENT_BUILDX_PATH = "$repo\artifacts\agent-mode\tools\dotnet-fastbuild.exe"
   $env:FASTBUILD_SERVER_EXE = "$repo\artifacts\agent-mode\server-host\11.9.10-preview\fastbuild-server.exe"
+  $env:FASTBUILD_CACHE_DIR = "$repo\artifacts\agent-mode\cache"
   $env:DOTNET_AGENT_MODE = 'auto'
   $env:DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = '0'
   $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = '0'
@@ -110,10 +132,11 @@ the adjacent verification/log files if they are still useful:
 
 ```powershell
 Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\server-host,
-  artifacts\agent-mode\sample, artifacts\agent-mode\home, artifacts\agent-mode\long-path -Recurse -Force
+  artifacts\agent-mode\sample, artifacts\agent-mode\home, artifacts\agent-mode\cache,
+  artifacts\agent-mode\long-path -Recurse -Force
 ```
 
-## Routing contract
+### Routing contract
 
 The [dispatcher](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs) runs at the
 [managed invocation boundary](../../src/Cli/dotnet/CommandInvocation.cs).
@@ -154,3 +177,38 @@ Standard SDK process/reaper infrastructure preserves streams, working directory,
 interruption handling, and the child exit code. A failed accelerator build is **not**
 retried through another engine. Resident-server correctness and broader project/custom
 target compatibility remain properties of the experimental package.
+
+## Follow-up work
+
+This checklist tracks follow-ups for the current buildx integration, not the full
+Agent Mode roadmap or a committed delivery schedule.
+
+### Cross-platform demo setup (macOS first)
+
+**Status:** not started; setup and verification currently support Windows only.
+The goal is the same ordinary `dotnet build` demo on macOS, starting with Apple Silicon.
+Intel macOS and Linux need separate execution evidence before claiming support.
+
+- [ ] Make [Prototype.ps1](../../.github/skills/agent-mode-buildx/scripts/Prototype.ps1)
+  select platform-appropriate executable names, paths, SDK bootstrap/build entry points,
+  and NativeAOT library names rather than assuming `.exe`, `build.cmd`, and
+  `dotnet-aot.dll`.
+- [ ] Replace `Get-CimInstance Win32_Process` with portable server identity/reuse checks,
+  retaining workspace-scoped shutdown and confirmation that the owned server exits.
+- [ ] Keep the [generated apphost and Win32 manifest workaround](../../.github/skills/agent-mode-buildx/scripts/CreatePackagedServerHost.cs)
+  Windows-only. On Unix, qualify the package's managed-server launch path; verify
+  captured output reaches EOF promptly, the resident server is reused, and cancellation
+  and shutdown work. Do not substitute `--no-server` and call it equivalent evidence.
+- [ ] On an actual Mac with PowerShell 7, SDK build prerequisites, and authorized internal
+  feed access, acquire the real pinned package and verify initial/repeated/edited builds,
+  executed outputs, selected SDK, argument forwarding, telemetry opt-out, stock controls,
+  and failure propagation in managed and NativeAOT-enabled entry modes.
+- [ ] Update this guide and the [agent skill](../../.github/skills/agent-mode-buildx/SKILL.md)
+  with executable Mac setup/run/cleanup instructions and retain exact versions,
+  architecture, resident-server identity, and validation results. Keep untested platforms
+  explicitly marked as unvalidated.
+
+**Planning estimate:** roughly half a day for the script port and an Apple Silicon
+validation pass, assuming Mac access, prerequisites, and feed authentication are ready.
+This is not a deadline; an upstream package/daemon issue or additional platform
+qualification can extend the work.

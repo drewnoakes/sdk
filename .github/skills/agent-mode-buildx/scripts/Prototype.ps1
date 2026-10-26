@@ -15,10 +15,12 @@ if (-not $IsWindows) { throw 'This prototype provisioning script currently suppo
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..'))
 $stateDirectory = Join-Path $repositoryRoot 'artifacts\agent-mode'
+$cacheDirectory = Join-Path $stateDirectory 'cache'
 $bootstrap = Join-Path $repositoryRoot '.dotnet\dotnet.exe'
 $toolDirectory = Join-Path $stateDirectory 'tools'
 $buildx = Join-Path $toolDirectory 'dotnet-fastbuild.exe'
 $packageVersion = '11.9.10-preview'
+$packageSha256 = '7D05F8ADB468576C9D80E7BAA092037B1CAB38DFC7AD9D5B467831367555173B'
 $package = Join-Path $toolDirectory ".store\microsoft.fastbuild\$packageVersion\microsoft.fastbuild\$packageVersion\microsoft.fastbuild.$packageVersion.nupkg"
 $packagedServer = Join-Path (Split-Path $package) 'tools\net10.0\any\server'
 $serverDirectory = Join-Path $stateDirectory "server-host\$packageVersion"
@@ -71,6 +73,17 @@ function Invoke-Captured([string] $Executable, [string[]] $Arguments, [string] $
 
 function Check([bool] $Condition, [string] $Message) {
     if (-not $Condition) { throw $Message }
+}
+
+function Assert-PinnedTool {
+    $result = Invoke-Captured $bootstrap @('tool', 'list', '--tool-path', $toolDirectory, '--format', 'json') $repositoryRoot
+    Check ($result.ExitCode -eq 0) "Could not inspect the installed tool version: $($result.StdErr)"
+    $tools = @((($result.StdOut | ConvertFrom-Json).data) | Where-Object packageId -EQ 'microsoft.fastbuild')
+    Check ($tools.Count -eq 1) "The private tool directory must contain Microsoft.FastBuild $packageVersion."
+    Check ($tools[0].version -ceq $packageVersion) "Expected Microsoft.FastBuild $packageVersion; found $($tools[0].version). Automatic updates are not supported."
+    Check ($tools[0].commands -contains 'dotnet-fastbuild') 'The pinned tool command is missing.'
+    Check ((Test-Path -LiteralPath $package) -and (Test-Path -LiteralPath $buildx)) 'The pinned tool installation is incomplete.'
+    Check ((Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash -ceq $packageSha256) 'The installed package differs from the checked-in SHA-256 pin. Refusing to use it.'
 }
 
 function Run-Check([string] $Name, [string[]] $Arguments, [bool] $Dispatch, [bool] $Success = $true) {
@@ -152,17 +165,18 @@ try {
     if ($Action -eq 'Setup') {
         . (Join-Path $repositoryRoot 'eng\common\tools.ps1')
         InitializeDotNetCli -install $true | Out-Null
+        if (Test-Path -LiteralPath $buildx) { Assert-PinnedTool }
         Stop-SampleServer
         Stop-PrivateSdkServers
         Invoke-Checked (Join-Path $repositoryRoot 'build.cmd') @('-c', $Configuration, '-binaryLog',
             '-binaryLogName', 'AgentModeBuildx.binlog')
         if (-not (Test-Path -LiteralPath $package)) {
             $installArguments = @('tool', 'install', 'Microsoft.FastBuild', '--tool-path', $toolDirectory,
-                '--add-source', $feed, '--version', $packageVersion, '--no-cache')
+                '--add-source', $feed, '--version', "[$packageVersion]", '--no-cache')
             if ($Interactive) { $installArguments += '--interactive' }
             Invoke-Checked $bootstrap $installArguments
         }
-        Check (Test-Path -LiteralPath $buildx) "The pinned package's dotnet-fastbuild shim is missing."
+        Assert-PinnedTool
         Invoke-Checked $bootstrap @('msbuild', 'src\Cli\dotnet\dotnet.csproj', '-t:UpdateXlf',
             "-p:Configuration=$Configuration", '-nologo', '-v:minimal')
         $rid = 'win-' + [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
@@ -177,6 +191,7 @@ try {
 
     Check ((Test-Path -LiteralPath $package) -and (Test-Path -LiteralPath $hostPath) -and
         (Test-Path -LiteralPath $serverHost)) 'Run Setup successfully first.'
+    Assert-PinnedTool
     $properties = Invoke-Captured $bootstrap @('msbuild', 'src\Cli\dotnet\dotnet.csproj',
         "-p:Configuration=$Configuration", '-getProperty:Version,SdkTargetFramework', '-nologo') $repositoryRoot
     Check ($properties.ExitCode -eq 0) "Could not evaluate SDK identity: $($properties.StdErr)"
@@ -196,6 +211,7 @@ try {
     $env:DOTNET_ROLL_FORWARD_TO_PRERELEASE = '1'
     $env:FASTBUILD_SDK_PATH = $sdkDirectory
     $env:FASTBUILD_SERVER_EXE = $serverHost
+    $env:FASTBUILD_CACHE_DIR = $cacheDirectory
     $env:DOTNET_AGENT_DISPATCH_BYPASS = $null
     $env:DOTNET_AGENT_MODE = $null
     $env:DOTNET_AGENT_BUILDX_PATH = $buildx
@@ -213,6 +229,11 @@ try {
         return
     }
 
+    # A previous structural-invalidation fallback must not replace the cold resident-engine proof.
+    Stop-SampleServer
+    if (Test-Path -LiteralPath $cacheDirectory) {
+        Remove-Item -LiteralPath $cacheDirectory -Recurse -Force
+    }
     New-Item -ItemType Directory -Path $sample -Force | Out-Null
     foreach ($name in @('Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props')) {
         '<Project />' | Set-Content -LiteralPath (Join-Path $sample $name)
