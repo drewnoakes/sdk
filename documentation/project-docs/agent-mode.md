@@ -339,10 +339,12 @@ detection/eligibility/dispatch logic into that existing native CLI and invoke th
 external tool from there. This could avoid initializing CoreCLR and the managed
 `dotnet.dll` merely to dispatch an eligible build.
 
-This is distinct from loading the FastBuild engine into the SDK, compiling its
-client/server with NativeAOT, or the generated native apphost used by this demo.
-The separately provisioned FastBuild client/server would remain out of process and
-may still require the managed runtime.
+This SDK-only option is distinct from loading the FastBuild engine into the SDK or
+the generated native apphost used by this demo. It would leave the external
+FastBuild client/server unchanged and may still incur their managed-runtime startup.
+A complementary [native Agent Mode tool option](#nativeaot-agent-mode-tool-with-an-integrated-build-client)
+could address client startup as well; the two optimizations can be investigated
+independently or together.
 
 - [ ] Measure the current managed handoff and external-client startup separately to
   establish whether SDK-side native dispatch removes a meaningful cost.
@@ -369,6 +371,43 @@ may still require the managed runtime.
   current path, using the same pinned package and observing the actual dispatch
   route and resident-server reuse. Record remaining managed startup costs and any
   size/correctness trade-offs. Treat a speedup as a hypothesis until measured.
+
+### NativeAOT Agent Mode tool with an integrated build client
+
+**Status:** proposed design option; no new tool or command is implemented, and the
+example name is not a settled public contract.
+
+Consider a separately serviced tool such as `dotnet-agent-mode build`, invoked by the
+SDK rather than learned or explicitly selected by the agent. The user's entry point
+would remain ordinary `dotnet build`. The tool could provide a home for buildx and
+future toolchain integrations without moving those implementations into the SDK.
+
+For the build integration, assess compiling the FastBuild **client** into this tool
+with NativeAOT, as build-time library/source composition. That could avoid launching
+the existing managed FastBuild client as another process. The resident MSBuild server
+could remain managed and separate, communicating with the native client through its
+existing IPC protocol; this does not assume MSBuild itself can be compiled with AOT.
+This is not dynamically loading an arbitrary managed client DLL into a native binary.
+
+- [ ] Define the SDK-to-tool command/context contract and retain normal SDK selection,
+  argument semantics, eligibility, opt-out, recursion protection, cancellation, and
+  exit-code handling. Keep `dotnet-agent-mode build` an internal delegation path,
+  not a requirement for models or users to issue a new verb.
+- [ ] Compare delegation to an existing buildx executable with build-time composition
+  of its client into the native Agent Mode tool. Identify the client API/refactoring,
+  trim/AOT compatibility, dependency, and binary-size work required. A wrapper that
+  merely starts the managed client still pays its startup cost.
+- [ ] Provision the appropriate native tool per OS/architecture and explicitly pin
+  compatible tool/client/server versions. Preserve independent servicing from the
+  SDK and rollback; do not assume the current managed NuGet package already contains
+  the proposed native payload.
+- [ ] Prove real initial/repeated/edited builds, server reuse, diagnostics,
+  failures/cancellation, unsupported-request behavior, and cleanup without replaying
+  failed work. Record which tool actually executed and which SDK/server it used.
+- [ ] Measure managed versus native SDK dispatch and managed versus integrated native
+  client as separate axes, including their combined path. Compare whole-command
+  cold and warm timings, process/runtime startup, and size. A tool-only change still
+  pays the SDK's managed fallback until SDK-side native dispatch is implemented.
 
 [fastbuild-client]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild%2FServer%2FServerClient.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
 [fastbuild-server]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild.Server%2FServerHost.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
