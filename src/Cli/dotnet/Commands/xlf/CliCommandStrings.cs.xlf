@@ -73,9 +73,9 @@
         <note />
       </trans-unit>
       <trans-unit id="AgentModeBuildxActivated">
-        <source>Agent mode: using experimental buildx (Microsoft.FastBuild).</source>
-        <target state="new">Agent mode: using experimental buildx (Microsoft.FastBuild).</target>
-        <note>{Locked="buildx"} {Locked="Microsoft.FastBuild"}</note>
+        <source>Agent mode: using experimental buildx.</source>
+        <target state="new">Agent mode: using experimental buildx.</target>
+        <note>{Locked="buildx"}</note>
       </trans-unit>
       <trans-unit id="AgentModeBuildxInvalidPath">
         <source>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</source>

@@ -195,5 +195,10 @@ public class AgentModeBuildxTests : SdkTest
             .And.Contain("--server")
             .And.Contain("-p:Configuration=Release")
             .And.Contain("-p:Example=hello world");
+        result.StdOut.Should().NotContain("Microsoft.FastBuild");
+        if (!SdkTestContext.IsLocalized())
+        {
+            result.StdOut.Should().Contain("Agent mode: using experimental buildx.");
+        }
     }
 }

@@ -157,8 +157,8 @@
     <value>Updated advertising manifest {0}.</value>
   </data>
   <data name="AgentModeBuildxActivated" xml:space="preserve">
-    <value>Agent mode: using experimental buildx (Microsoft.FastBuild).</value>
-    <comment>{Locked="buildx"} {Locked="Microsoft.FastBuild"}</comment>
+    <value>Agent mode: using experimental buildx.</value>
+    <comment>{Locked="buildx"}</comment>
   </data>
   <data name="AgentModeBuildxInvalidPath" xml:space="preserve">
     <value>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</value>

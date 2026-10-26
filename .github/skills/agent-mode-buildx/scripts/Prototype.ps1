@@ -93,7 +93,7 @@ function Run-Check([string] $Name, [string[]] $Arguments, [bool] $Dispatch, [boo
     Write-Host "[$Name] exit=$($result.ExitCode)"
     Write-Host $text.TrimEnd()
     Check (($result.ExitCode -eq 0) -eq $Success) "$Name returned an unexpected exit code. See $Name.log."
-    Check ($text.Contains('Agent mode: using experimental buildx (Microsoft.FastBuild).') -eq $Dispatch) "$Name took the wrong route."
+    Check ($text.Contains('Agent mode: using experimental buildx.') -eq $Dispatch) "$Name took the wrong route."
     $results.Add([pscustomobject]@{
         Name = $Name
         ExitCode = $result.ExitCode
