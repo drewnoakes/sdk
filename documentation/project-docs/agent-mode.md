@@ -256,6 +256,8 @@ The [dispatcher](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs) runs at the
 NativeAOT keeps its existing
 [managed build fallback](../../src/Cli/dotnet/Parser.cs); no accelerator implementation
 or new dependencies are added to the native closure.
+Running SDK-side Agent Mode dispatch directly in the native CLI is
+[tracked as follow-up work](#nativeaot-sdk-side-agent-mode-dispatch).
 
 | Process-scoped setting | Effect |
 | --- | --- |
@@ -325,6 +327,48 @@ Intel macOS and Linux need separate execution evidence before claiming support.
 validation pass, assuming Mac access, prerequisites, and feed authentication are ready.
 This is not a deadline; an upstream package/daemon issue or additional platform
 qualification can extend the work.
+
+### NativeAOT SDK-side Agent Mode dispatch
+
+**Status:** not started; feasibility and performance investigation, not an implemented
+native fast path.
+
+The SDK already has a [NativeAOT CLI library](../../src/Cli/dotnet-aot/DESIGN.md)
+loaded by the `dotnet` host. The proposal is to compile the shared Agent Mode
+detection/eligibility/dispatch logic into that existing native CLI and invoke the
+external tool from there. This could avoid initializing CoreCLR and the managed
+`dotnet.dll` merely to dispatch an eligible build.
+
+This is distinct from loading the FastBuild engine into the SDK, compiling its
+client/server with NativeAOT, or the generated native apphost used by this demo.
+The separately provisioned FastBuild client/server would remain out of process and
+may still require the managed runtime.
+
+- [ ] Measure the current managed handoff and external-client startup separately to
+  establish whether SDK-side native dispatch removes a meaningful cost.
+- [ ] Assess the shared [dispatcher](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs)
+  and [invocation boundary](../../src/Cli/dotnet/CommandInvocation.cs) for AOT
+  compatibility. Reuse the existing telemetry detector and localized resources;
+  do not create a second parser, detector, or policy implementation.
+- [ ] Audit the native source/dependency closure. Directory discovery currently calls
+  [SolutionAndProjectUtility](../../src/Cli/dotnet/Commands/Test/MTP/SolutionAndProjectUtility.cs),
+  whose source file also contains MSBuild-dependent test logic and is excluded from
+  [AotSourceFiles.props](../../src/Cli/dotnet-aot/AotSourceFiles.props). Extract/reuse
+  the pure discovery helper if needed rather than importing that whole utility.
+- [ ] Wire original arguments and authoritative host/selected-SDK context through the
+  native entry point. Preserve eligibility, opt-out, recursion bypass, working
+  directory, streams, errors, exit codes, and cancellation. Unsupported or
+  first-run-dependent cases must retain managed fallback before any tool launch or
+  activation message; never retry a tool failure through another engine.
+- [ ] Follow the [NativeAOT integration workflow](../../.github/skills/add-dotnet-aot-command/SKILL.md):
+  validate a clean native publish, actual redist/native execution, separated SDK
+  layout, managed/native contract parity, and native binary-size impact. Prove that
+  the eligible request bypassed managed CLI fallback; the existing
+  `DOTNET_CLI_ENABLEAOT=true` demo checks alone do not prove native dispatch.
+- [ ] Compare whole-command cold, warm/no-op, and edited-build timings with the
+  current path, using the same pinned package and observing the actual dispatch
+  route and resident-server reuse. Record remaining managed startup costs and any
+  size/correctness trade-offs. Treat a speedup as a hypothesis until measured.
 
 [fastbuild-client]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild%2FServer%2FServerClient.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
 [fastbuild-server]: https://devdiv.visualstudio.com/DevDiv/_git/vs-green?path=%2Ffastbuild%2FFastBuild.Server%2FServerHost.cs&version=GCadfaba2f64419fc82261665e10e8cb7f90399fbd
