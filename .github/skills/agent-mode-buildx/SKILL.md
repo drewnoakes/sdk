@@ -29,6 +29,9 @@ do not remove the platform guard without completing the port and real-platform c
    SHA-256, and setup/run reject a mismatched installation. Change the pins only as an
    explicit upgrade using the guide's
    [qualification and rollback procedure](../../../documentation/project-docs/agent-mode.md#updating-the-pinned-buildx-package).
+   Keep this published pin rather than packaging/substituting a local tool. Follow the
+   [new-CLI migration checklist](../../../documentation/project-docs/agent-mode.md#migration-after-the-native-cli-compatibility-package-ships)
+   before removing compatibility mappings when a containing package becomes available.
 2. Run the same script with `Verify`. Require its real-package builds and output checks
    to pass; the activation banner or a fake provider alone is not end-to-end evidence.
    Inspect `artifacts\agent-mode\verification.json` and the adjacent per-command logs.

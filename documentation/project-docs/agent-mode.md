@@ -190,6 +190,12 @@ Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\build-
 Treat a version change as an explicit compatibility update, not routine demo setup.
 A newer feed version is a candidate, not automatically a supported version.
 
+**Current integration decision:** keep the custom SDK targeting the published,
+hash-pinned `11.9.10-preview` package. Do not substitute a locally built tool into
+XiaoYun's evaluation environment while the newer CLI work is being integrated.
+The [new-CLI migration checklist](#migration-after-the-native-cli-compatibility-package-ships)
+below identifies what can be simplified after a qualified containing package ships.
+
 1. **Discover without updating.** Query the authorized feed, including prereleases:
 
    ```powershell
@@ -250,6 +256,50 @@ A newer feed version is a candidate, not automatically a supported version.
    `artifacts\agent-mode\tools`. The versioned old launcher remains available. Re-run
    `Verify` before using the restored demo; do not accept a failing candidate merely
    because it is the newest package.
+
+### Migration after the native CLI compatibility package ships
+
+The native FastBuild work is being prepared as one CLI-compatibility review sequence,
+with separate rebuild-semantics, typed-alias, and no-dependencies commits. The broader
+environment/cache/server-identity correction is separate. Neither local commits nor
+a merged PR change the CLI API of the package already pinned here.
+
+Do not preemptively switch the SDK adapter to the new spellings. Once a feed package
+containing the native changes is available, follow the upgrade procedure above and
+qualify the **installed package**, then make these focused changes in
+[TryGetBuildxArguments](../../src/Cli/dotnet/AgentModeBuildxDispatcher.cs):
+
+| Input | Current package bridge | Simplification after package qualification |
+| --- | --- | --- |
+| Typed configuration/framework options | Synthesize `-p:Configuration=...` / `-p:TargetFramework=...`. | Forward the original supported typed aliases and value tokens; remove the property-name synthesis and typed-value punctuation restriction where native parsing proves equivalent. |
+| Verbosity | Parse the SDK enum and re-emit `--verbosity <value>`. | Forward supported separated/attached native aliases; remove the adapter's enum parsing and re-emission after checking valid/invalid values and repeated-option precedence. |
+| No-logo | Consume the spelling without forwarding it. | Forward the native no-logo option after checking logo suppression on supported engines. The Agent Mode activation notice is separate. |
+| `--no-incremental` | Forward unchanged through the package's existing rebuild alias. | Keep unchanged; qualify actual Rebuild behavior, not only option parsing. Never rewrite SDK `--force` to this flag. |
+
+Keep the complete-argument eligibility check, response-file/raw-input protection,
+target discovery, selected SDK/host context, recursion bypass, console notices, and
+stock fallback semantics. **Do not remove the generic-property or output/artifacts
+fallbacks simply because the new parser accepts more spellings.** Explicit targets,
+forced restore, and environment-sensitive cases need their own semantic support.
+Native no-dependencies support may itself use a stock build; its presence is not an
+acceleration benefit and does not require adding an extra client hop in this SDK.
+
+Acceptance before deleting a bridge:
+
+- [ ] Record the exact published package version/hash and evidence that it contains
+  the reviewed native changes. Keep `11.9.10-preview` until then; do not infer a future
+  version from a branch or commit.
+- [ ] Use the real candidate to prove Release configuration and framework selection
+  across cold, no-op, and edited builds with correct output, selected SDK, and actual
+  server reuse. Cover separated/attached spellings, values with spaces, repeated
+  options/precedence, verbosity errors, and no-logo behavior.
+- [ ] Update adapter tests and run the [focused SDK workflow](../../.github/skills/run-tests/SKILL.md)
+  plus the real-package verifier through managed and NativeAOT-enabled entry modes.
+  Preserve errors, exit codes, cancellation, and pre-launch stock fallbacks.
+- [ ] Update the version/hash pins, compatibility matrix, and skill together, retaining
+  the prior installation/evidence for rollback. Keep the Windows launcher workaround
+  unless capture-EOF, server reuse, and long-path qualification independently prove
+  it unnecessary.
 
 ### Routing contract
 
