@@ -164,6 +164,18 @@
     <value>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</value>
     <comment>{0} is an environment variable name. {Locked="buildx"}</comment>
   </data>
+  <data name="AgentModeBuildxCommand" xml:space="preserve">
+    <value>Agent mode buildx command: {0}</value>
+    <comment>{0} is the command line, shown only at detailed/diagnostic verbosity. {Locked="buildx"}</comment>
+  </data>
+  <data name="AgentModeBuildxStock" xml:space="preserve">
+    <value>Agent mode: using the stock SDK ({0}).</value>
+    <comment>{0} is a stable diagnostic reason code, not a translated message.</comment>
+  </data>
+  <data name="AgentModeBuildxInvalidLogPath" xml:space="preserve">
+    <value>Set {0} to an absolute directory for local Agent Mode routing logs.</value>
+    <comment>{0} is an environment variable name.</comment>
+  </data>
   <data name="AgentModeInvalidMode" xml:space="preserve">
     <value>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</value>
     <comment>{0} is the supplied value; {1} is an environment variable name. {Locked="auto"} {Locked="on"} {Locked="off"}</comment>

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Text.Json;
 using Microsoft.DotNet.Cli.Utils;
 using Moq;
 
@@ -64,6 +65,112 @@ public class AgentModeBuildxTests : SdkTest
     }
 
     [TestMethod]
+    [DataRow("--configuration=Release", "-p:Configuration=Release")]
+    [DataRow("-c:Release", "-p:Configuration=Release")]
+    [DataRow("--framework=net11.0", "-p:TargetFramework=net11.0")]
+    [DataRow("-f:net11.0", "-p:TargetFramework=net11.0")]
+    [DataRow("/p:SkipBunCompile=true", "-p:SkipBunCompile=true")]
+    [DataRow("-property:Example=hello world", "-p:Example=hello world")]
+    [DataRow("--p:Example=a=b", "-p:Example=a=b")]
+    [DataRow("--version-suffix=demo", "-p:VersionSuffix=demo")]
+    [DataRow("--no-incremental", "--no-incremental")]
+    public void NormalizesCompatibleOptions(string argument, string expected)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: argument.Replace(':', '_')).Path;
+        string project = Path.Combine(directory, "App.csproj");
+        File.WriteAllText(project, "<Project />");
+        string[] arguments = ["build", argument];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated, out string reason).Should().BeTrue();
+        translated.Should().Equal(project, "--server", expected);
+        reason.Should().Be("supported");
+    }
+
+    [TestMethod]
+    [DataRow("-v:minimal")]
+    [DataRow("/v:minimal")]
+    [DataRow("--verbosity=minimal")]
+    [DataRow("-verbosity:minimal")]
+    public void NormalizesVerbosity(string argument)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: argument.Replace(':', '_')).Path;
+        string project = Path.Combine(directory, "App.csproj");
+        File.WriteAllText(project, "<Project />");
+        string[] arguments = ["build", argument];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated).Should().BeTrue();
+        translated.Should().Equal(project, "--server", "--verbosity", "minimal");
+    }
+
+    [TestMethod]
+    [DataRow("--nologo")]
+    [DataRow("--no-logo")]
+    [DataRow("-nologo")]
+    [DataRow("/nologo")]
+    public void AcceptsLogoSuppressionWithoutSendingAnUnknownSwitch(string argument)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: argument).Path;
+        string project = Path.Combine(directory, "App.csproj");
+        File.WriteAllText(project, "<Project />");
+        string[] arguments = ["build", argument];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated).Should().BeTrue();
+        translated.Should().Equal(project, "--server");
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ExplicitPropertiesOverrideCliOptionsRegardlessOfPosition(bool propertyFirst)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: propertyFirst.ToString()).Path;
+        string project = Path.Combine(directory, "App.csproj");
+        File.WriteAllText(project, "<Project />");
+        string[] arguments = propertyFirst
+            ? ["build", "-p:Configuration=Debug", "-c", "Release"]
+            : ["build", "-c", "Release", "-p:Configuration=Debug"];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated).Should().BeTrue();
+        translated.Should().Equal(project, "--server", "-p:Configuration=Release", "-p:Configuration=Debug");
+    }
+
+    [TestMethod]
+    [DataRow("-o", "OutputPath")]
+    [DataRow("--artifacts-path", "ArtifactsPath")]
+    public void ResolvesOutputPathsAgainstTheCallerDirectory(string option, string property)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: property).Path;
+        string project = Path.Combine(directory, "App.csproj");
+        File.WriteAllText(project, "<Project />");
+        string[] arguments = ["build", option, "output with spaces"];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated).Should().BeTrue();
+        translated.Should().Equal(project, "--server", $"-p:{property}={Path.Combine(directory, "output with spaces")}");
+    }
+
+    [TestMethod]
+    [DataRow("--no-dependencies", "unsupported-option:no-dependencies")]
+    [DataRow("--force", "unsupported-option:force")]
+    [DataRow("/t:test", "unsupported-option:t")]
+    [DataRow("-bl:requested.binlog", "unsupported-option:bl")]
+    [DataRow("/p:BuildProjectReferences=false", "unsupported-property")]
+    [DataRow("-p:Platform=Any CPU", "unsupported-property")]
+    [DataRow("-p:IsImplicitlyTriggeredBuild=false", "unsupported-property")]
+    [DataRow("-p:TargetFramework=", "unsupported-property")]
+    [DataRow("-p:A=1;B=2", "unsupported-property")]
+    [DataRow("-p:Example=\"a,b\"", "unsupported-property")]
+    public void ReportsIncompatibleSemanticsBeforeLaunching(string argument, string expectedReason)
+    {
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: expectedReason.Replace(':', '_')).Path;
+        File.WriteAllText(Path.Combine(directory, "App.csproj"), "<Project />");
+        string[] arguments = ["build", argument];
+        AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
+            out string[] translated, out string reason).Should().BeFalse();
+        translated.Should().BeEmpty();
+        reason.Should().Be(expectedReason);
+    }
+
+    [TestMethod]
     [DataRow("App.csproj")]
     [DataRow("App.vbproj")]
     [DataRow("App.sln")]
@@ -102,10 +209,7 @@ public class AgentModeBuildxTests : SdkTest
     [DataRow("build --getProperty:TargetFramework")]
     [DataRow("build -t:Clean")]
     [DataRow("build --disable-build-servers")]
-    [DataRow("build --no-incremental")]
-    [DataRow("build --no-logo")]
     [DataRow("build --runtime win-x64")]
-    [DataRow("build --output out")]
     [DataRow("build --verbosity invalid")]
     [DataRow("build App.csproj Another.csproj")]
     [DataRow("build missing.csproj")]
@@ -178,6 +282,7 @@ public class AgentModeBuildxTests : SdkTest
         string probe = Path.Combine(
             OutputPathCalculator.FromProject(asset.Path).GetOutputDirectory(configuration: "Debug"), "TestAppSimple.dll");
 
+        string logDirectory = Path.Combine(asset.Path, "routing-log");
         var result = new DotnetCommand(Log)
             .WithWorkingDirectory(asset.Path)
             .WithEnvironmentVariable("DOTNET_CLI_ENABLEAOT", aot.ToString())
@@ -186,9 +291,17 @@ public class AgentModeBuildxTests : SdkTest
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BypassVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, probe)
-            .Execute("build", "-c", "Release", "-p:Example=hello world");
+            .WithEnvironmentVariable(AgentModeBuildxLog.DirectoryVariable, logDirectory)
+            .Execute("build", "-c", "Release", "-p:Example=hello world", "-v:diag");
 
         result.ExitCode.Should().Be(37);
+        string record = File.ReadAllText(Directory.GetFiles(logDirectory, "*.json").Single());
+        using JsonDocument document = JsonDocument.Parse(record);
+        document.RootElement.GetProperty("Route").GetString().Should().Be("buildx");
+        document.RootElement.GetProperty("Reason").GetString().Should().Be("supported");
+        document.RootElement.GetProperty("ExitCode").GetInt32().Should().Be(37);
+        record.Should().NotContain("hello world");
+        result.StdErr.Should().Contain("hello world");
         result.StdOut.Should().Contain("buildx-probe")
             .And.Contain("1" + Environment.NewLine)
             .And.Contain(asset.Path)
@@ -199,6 +312,25 @@ public class AgentModeBuildxTests : SdkTest
         if (!SdkTestContext.IsLocalized())
         {
             result.StdOut.Should().Contain("Agent mode: using experimental buildx.");
+            result.StdErr.Should().Contain("Agent mode buildx command:");
         }
+    }
+
+    [TestMethod]
+    public void RecordsStockFallbackAndPreservesFailure()
+    {
+            var asset = TestAssetsManager.CopyTestAsset("TestAppSimple").WithSource();
+            string logDirectory = Path.Combine(asset.Path, "routing-log");
+            var result = new DotnetCommand(Log).WithWorkingDirectory(asset.Path)
+                .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "on")
+                .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, "not-a-tool")
+                .WithEnvironmentVariable(AgentModeBuildxLog.DirectoryVariable, logDirectory)
+                .Execute("build", "--no-dependencies", "--no-restore");
+            result.ExitCode.Should().NotBe(0);
+            result.StdOut.Should().NotContain("Agent mode: using experimental buildx.");
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Directory.GetFiles(logDirectory, "*.json").Single()));
+            document.RootElement.GetProperty("Route").GetString().Should().Be("sdk");
+            document.RootElement.GetProperty("Reason").GetString().Should().Be("unsupported-option:no-dependencies");
+            document.RootElement.GetProperty("ExitCode").GetInt32().Should().Be(result.ExitCode);
     }
 }

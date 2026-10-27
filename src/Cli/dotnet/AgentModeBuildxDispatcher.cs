@@ -4,6 +4,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.Diagnostics;
+using Microsoft.DotNet.Cli.Extensions;
 using Microsoft.DotNet.Cli.Commands;
 using Microsoft.DotNet.Cli.Commands.Test;
 using Microsoft.DotNet.Cli.Telemetry;
@@ -17,16 +18,35 @@ internal static class AgentModeBuildxDispatcher
     internal const string BuildxPathVariable = "DOTNET_AGENT_BUILDX_PATH";
     internal const string BypassVariable = "DOTNET_AGENT_DISPATCH_BYPASS";
 
-    internal static bool TryExecute(ParseResult parseResult, string[]? arguments, out int exitCode)
+    internal static bool TryExecute(ParseResult parseResult, string[]? arguments, out int exitCode, out string reason)
     {
         exitCode = 0;
-        if (!IsBuildInvocation(parseResult, arguments) ||
-            !IsEnabled(Environment.GetEnvironmentVariable, new LLMEnvironmentDetectorForTelemetry()) ||
-            !TryGetBuildxArguments(parseResult, arguments, Environment.CurrentDirectory, out string[] buildxArguments))
+        reason = "not-build";
+        if (arguments is not ["build", ..])
         {
             return false;
         }
+        reason = "dispatch-error";
+        if (!IsEnabled(Environment.GetEnvironmentVariable, new LLMEnvironmentDetectorForTelemetry()))
+        {
+            reason = Environment.GetEnvironmentVariable(BypassVariable) == "1" ? "recursive-bypass"
+                : Environment.GetEnvironmentVariable(ModeVariable)?.ToLowerInvariant() is "off" or "false" or "0" ? "disabled"
+                : string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(BuildxPathVariable)) ? "unprovisioned" : "no-agent";
+            return false;
+        }
+        if (!TryGetBuildxArguments(parseResult, arguments, Environment.CurrentDirectory, out string[] buildxArguments, out reason))
+        {
+            return false;
+        }
+        // The pinned package does not include environment identity in resident-server reuse.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Configuration")) ||
+            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Platform")))
+        {
+            reason = "unsupported-environment";
+            return false;
+        }
 
+        reason = "dispatch-error";
         ProcessStartInfo startInfo = CreateStartInfo(
             Environment.GetEnvironmentVariable(BuildxPathVariable),
             buildxArguments,
@@ -34,6 +54,14 @@ internal static class AgentModeBuildxDispatcher
             SdkPaths.SdkDirectory);
 
         Reporter.Output.WriteLine(CliCommandStrings.AgentModeBuildxActivated);
+        if (CommandLoggingContext.IsVerbose ||
+            parseResult.GetValue(Parser.RootCommand.BuildCommand.VerbosityOption) is
+                VerbosityOptions.detailed or VerbosityOptions.d or VerbosityOptions.diagnostic or VerbosityOptions.diag)
+        {
+            Reporter.Error.WriteLine(string.Format(CliCommandStrings.AgentModeBuildxCommand,
+                ArgumentEscaper.EscapeAndConcatenateArgArrayForProcessStart([startInfo.FileName, .. startInfo.ArgumentList])));
+        }
+        reason = "supported";
         using Process process = new() { StartInfo = startInfo };
         exitCode = new Utils.Command(process).Execute().ExitCode;
         return true;
@@ -76,8 +104,13 @@ internal static class AgentModeBuildxDispatcher
 
     internal static bool TryGetBuildxArguments(
         ParseResult parseResult, string[]? arguments, string workingDirectory, out string[] buildxArguments)
+        => TryGetBuildxArguments(parseResult, arguments, workingDirectory, out buildxArguments, out _);
+
+    internal static bool TryGetBuildxArguments(
+        ParseResult parseResult, string[]? arguments, string workingDirectory, out string[] buildxArguments, out string reason)
     {
         buildxArguments = [];
+        reason = parseResult.Errors.Count > 0 ? "parse-error" : "non-execution";
         if (!IsBuildInvocation(parseResult, arguments))
         {
             return false;
@@ -86,47 +119,104 @@ internal static class AgentModeBuildxDispatcher
         // Microsoft.FastBuild is not an argv-transparent dotnet build replacement. Unknown forms
         // must remain with the SDK before launching anything, rather than losing a switch or retrying.
         List<string> options = [];
+        List<string> explicitProperties = [];
         string? target = null;
         for (int i = 1; i < arguments!.Length; i++)
         {
             string argument = arguments[i];
-            switch (argument)
+            if (argument.StartsWith('@'))
             {
-                case "-c" or "--configuration" or "-f" or "--framework" or "-v" or "--verbosity":
-                    if (++i == arguments.Length)
+                reason = "response-file";
+                return false;
+            }
+            if (!argument.StartsWith('-') && !argument.StartsWith('/'))
+            {
+                if (target is not null)
+                {
+                    reason = "multiple-targets";
+                    return false;
+                }
+                target = argument;
+                continue;
+            }
+            // Unix absolute paths are operands, not MSBuild slash switches.
+            if (Path.IsPathFullyQualified(argument) && (File.Exists(Path.GetFullPath(argument, workingDirectory)) ||
+                Directory.Exists(Path.GetFullPath(argument, workingDirectory))))
+            {
+                if (target is not null) { reason = "multiple-targets"; return false; }
+                target = argument;
+                continue;
+            }
+            int separator = argument.IndexOfAny([':', '=']);
+            string spelling = separator < 0 ? argument : argument[..separator];
+            string name = spelling.TrimStart('-', '/').ToLowerInvariant();
+            string? value = separator < 0 ? null : argument[(separator + 1)..];
+            reason = "unsupported-option:" + name;
+            bool cliOption = spelling is "-c" or "--configuration" or "-f" or "--framework" or "--version-suffix"
+                or "-o" or "--output" or "--artifacts-path" or "--no-restore" or "--no-incremental" or "--no-logo";
+            bool msbuildOption = spelling.ToLowerInvariant() is "-p" or "--p" or "/p" or "-property" or "--property"
+                or "/property" or "-v" or "--v" or "/v" or "-verbosity" or "--verbosity" or "/verbosity"
+                or "-nologo" or "--nologo" or "/nologo";
+            if (!cliOption && !msbuildOption) { return false; }
+            switch (name)
+            {
+                case "c" or "configuration" or "f" or "framework" or "v" or "verbosity"
+                    or "p" or "property" or "version-suffix" or "o" or "output" or "artifacts-path":
+                    if (value is null && ++i < arguments.Length)
                     {
+                        value = arguments[i];
+                    }
+                    if (string.IsNullOrEmpty(value))
+                    {
+                        reason = "missing-option-value:" + name;
                         return false;
                     }
-                    options.Add(argument switch
+                    if (name is "p" or "property")
                     {
-                        "-c" or "--configuration" => $"-p:Configuration={arguments[i]}",
-                        "-f" or "--framework" => $"-p:TargetFramework={arguments[i]}",
-                        _ => "--verbosity"
-                    });
-                    if (argument is "-v" or "--verbosity")
-                    {
-                        options.Add(arguments[i]);
+                        if (!CanForwardProperties(value)) { reason = "unsupported-property"; return false; }
+                        explicitProperties.Add("-p:" + value);
+                        break;
                     }
+                    if (name is "v" or "verbosity")
+                    {
+                        if (!Enum.TryParse(value, ignoreCase: true, out VerbosityOptions verbosity) || !Enum.IsDefined(verbosity))
+                        {
+                            reason = "invalid-verbosity";
+                            return false;
+                        }
+                        options.Add("--verbosity");
+                        options.Add(verbosity.ToString());
+                        break;
+                    }
+                    if (value.IndexOfAny([';', ',', '"']) >= 0)
+                    {
+                        reason = "unsupported-option-value:" + name;
+                        return false;
+                    }
+                    string propertyName = name switch
+                    {
+                        "c" or "configuration" => "Configuration",
+                        "f" or "framework" => "TargetFramework",
+                        "version-suffix" => "VersionSuffix",
+                        "o" or "output" => "OutputPath",
+                        _ => "ArtifactsPath"
+                    };
+                    if (name is "o" or "output" or "artifacts-path")
+                    {
+                        value = Path.GetFullPath(value, workingDirectory);
+                    }
+                    options.Add($"-p:{propertyName}={value}");
                     break;
-                case "--no-restore":
-                    options.Add(argument);
+                case "no-restore" or "no-incremental":
+                    if (value is not null) { return false; }
+                    options.Add("--" + name);
+                    break;
+                case "nologo" or "no-logo":
+                    if (value is not null) { return false; }
+                    // This package has no product logo; its spawned SDK also defaults to nologo.
                     break;
                 default:
-                    string? property = new[] { "-p:", "--property:", "-property:", "/p:", "/property:" }
-                        .FirstOrDefault(prefix => argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
-                    if (property is not null && argument.IndexOf('=', property.Length) > property.Length)
-                    {
-                        options.Add("-p:" + argument[property.Length..]);
-                    }
-                    else if (target is null && !argument.StartsWith('-') && !argument.StartsWith('@'))
-                    {
-                        target = argument;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                    break;
+                    return false;
             }
         }
 
@@ -134,17 +224,48 @@ internal static class AgentModeBuildxDispatcher
         if (Directory.Exists(target) &&
             !SolutionAndProjectUtility.TryGetProjectOrSolutionFilePath(target, out target, out _).SolutionOrProjectFileFound)
         {
+            reason = "ambiguous-or-missing-target";
             return false;
         }
 
         if (!File.Exists(target) ||
             !(Path.GetExtension(target).ToLowerInvariant() is ".csproj" or ".vbproj" or ".sln" or ".slnx" or ".slnf"))
         {
+            reason = "unsupported-or-missing-target";
             return false;
         }
 
+        // Match the SDK's precedence: forwarded CLI options precede explicit MSBuild properties.
+        options.AddRange(explicitProperties);
+        // The package evaluates output properties per project rather than as a solution build.
+        if (Path.GetExtension(target).ToLowerInvariant() is not (".csproj" or ".vbproj") &&
+            options.Any(option => option.StartsWith("-p:OutputPath=", StringComparison.OrdinalIgnoreCase)))
+        {
+            reason = "solution-output";
+            return false;
+        }
         buildxArguments = [target, "--server", .. options];
+        reason = "supported";
         return true;
+    }
+
+    private static bool CanForwardProperties(string properties)
+    {
+        // Avoid silently dropped/reserved dimensions in the pinned FastBuild parser.
+        // Complex grouped/quoted forms remain stock until both parsers have parity coverage.
+        if (properties.IndexOfAny([';', ',', '"']) >= 0)
+        {
+            return false;
+        }
+        int equals = properties.IndexOf('=');
+        if (equals <= 0) { return false; }
+        string name = properties[..equals].Trim();
+        return !string.IsNullOrEmpty(name) &&
+            !new[] { "Platform", "BuildProjectReferences", "IsImplicitlyTriggeredBuild", "FASTBUILD_PROVENANCE",
+                "FASTBUILD_RESTORE_PROVENANCE", "RestoreForce", "RestoreForceEvaluate", "CustomAfterMicrosoftCommonTargets",
+                "CustomAfterMicrosoftCommonCrossTargetingTargets" }
+                .Contains(name, StringComparer.OrdinalIgnoreCase) &&
+            !(name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase) && properties[(equals + 1)..].Length == 0);
     }
 
     internal static ProcessStartInfo CreateStartInfo(
@@ -179,6 +300,7 @@ internal static class AgentModeBuildxDispatcher
         startInfo.Environment[BypassVariable] = "1";
         startInfo.Environment["FASTBUILD_SDK_PATH"] = sdkDirectory;
         startInfo.Environment["DOTNET_HOST_PATH"] = dotnetHostPath;
+        startInfo.Environment["DOTNET_NOLOGO"] = "1";
         startInfo.Environment["PATH"] = dotnetRoot + Path.PathSeparator + startInfo.Environment["PATH"];
         foreach (string name in startInfo.Environment.Keys.Where(name =>
             name.StartsWith("DOTNET_ROOT", StringComparison.OrdinalIgnoreCase)).ToArray())

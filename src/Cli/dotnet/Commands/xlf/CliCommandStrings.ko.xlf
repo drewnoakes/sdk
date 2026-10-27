@@ -77,10 +77,25 @@
         <target state="new">Agent mode: using experimental buildx.</target>
         <note>{Locked="buildx"}</note>
       </trans-unit>
+      <trans-unit id="AgentModeBuildxCommand">
+        <source>Agent mode buildx command: {0}</source>
+        <target state="new">Agent mode buildx command: {0}</target>
+        <note>{0} is the command line, shown only at detailed/diagnostic verbosity. {Locked="buildx"}</note>
+      </trans-unit>
+      <trans-unit id="AgentModeBuildxInvalidLogPath">
+        <source>Set {0} to an absolute directory for local Agent Mode routing logs.</source>
+        <target state="new">Set {0} to an absolute directory for local Agent Mode routing logs.</target>
+        <note>{0} is an environment variable name.</note>
+      </trans-unit>
       <trans-unit id="AgentModeBuildxInvalidPath">
         <source>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</source>
         <target state="new">Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</target>
         <note>{0} is an environment variable name. {Locked="buildx"}</note>
+      </trans-unit>
+      <trans-unit id="AgentModeBuildxStock">
+        <source>Agent mode: using the stock SDK ({0}).</source>
+        <target state="new">Agent mode: using the stock SDK ({0}).</target>
+        <note>{0} is a stable diagnostic reason code, not a translated message.</note>
       </trans-unit>
       <trans-unit id="AgentModeInvalidMode">
         <source>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</source>

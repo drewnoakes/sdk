@@ -33,9 +33,13 @@ do not remove the platform guard without completing the port and real-platform c
    to pass; the activation banner or a fake provider alone is not end-to-end evidence.
    Inspect `artifacts\agent-mode\verification.json` and the adjacent per-command logs.
 3. Keep the model's entry point as `dotnet build`. For an interactive environment, use
-   `Shell` after verification; agents should instead use an explicitly scoped process
+   `Shell -WorkingDirectory C:\path\to\consumer` after verification; agents should instead use an explicitly scoped process
    environment as documented. Preserve the consumer's SDK selection, and confirm that
    the selected SDK is this custom redist before expecting routing.
+   The [compatibility matrix and evaluation guide](../../../documentation/project-docs/agent-mode.md#evaluation-setup-and-routing-diagnostics)
+   explain supported argument translations and `DOTNET_AGENT_LOG_DIR`. Use a separate
+   absolute routing-log directory per evaluation; stock fallbacks are not buildx wins.
+   Only use detailed/diagnostic command-line output when property values are safe to log.
 4. Use the repository [run-tests](../run-tests/SKILL.md) workflow with the
    `AgentModeBuildxTests` filter for SDK regression tests. The real-package verification
    is additional evidence, not a replacement for those tests.

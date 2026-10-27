@@ -181,6 +181,7 @@ the adjacent verification/log files if they are still useful:
 ```powershell
 Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\build-server,
   artifacts\agent-mode\sample, artifacts\agent-mode\home, artifacts\agent-mode\cache,
+  artifacts\agent-mode\compat-output, artifacts\agent-mode\compat-artifacts,
   artifacts\agent-mode\long-path -Recurse -Force
 ```
 
@@ -267,6 +268,7 @@ Running SDK-side Agent Mode dispatch directly in the native CLI is
 | `DOTNET_AGENT_MODE=on` | Explicit local opt-in, even without a detected agent. Requires valid provisioning. Boolean `true` / `1` also work. |
 | `DOTNET_AGENT_MODE=off` | Stock SDK behavior. Boolean `false` / `0` also work. |
 | `DOTNET_AGENT_DISPATCH_BYPASS=1` | Stock behavior in nested SDK invocations; overrides mode validation. |
+| `DOTNET_AGENT_LOG_DIR` | Optional absolute directory for local per-build routing records, independent of telemetry upload. The setup script enables this under `artifacts\agent-mode\routing`. |
 
 For a different consumer, prepend the custom redist to **that process's** PATH and set
 both the absolute tool path and the scoped `FASTBUILD_SERVER_EXE` launcher override.
@@ -276,14 +278,32 @@ consumer's SDK policy without permission.
 
 Supported forms are an existing explicit `.csproj`, `.vbproj`, `.sln`, `.slnx`, or
 `.slnf`, or an unambiguous default/directory target resolved by the SDK's existing
-project/solution helper. Configuration and framework options become MSBuild properties;
-verbosity, `--no-restore`, and recognized property switches are preserved. Arguments
-are passed as individual process arguments, including values with spaces.
+project/solution helper. The adapter targets the **pinned package's actual capabilities**,
+not unshipped changes in other FastBuild branches. Arguments are passed individually,
+including values with spaces. SDK options are translated before explicit MSBuild
+properties, preserving explicit property override precedence.
+
+| `dotnet build` input | Pinned-package mapping or fallback |
+| --- | --- |
+| `-c` / `--configuration`, `-f` / `--framework` | `-p:Configuration=...` / `-p:TargetFramework=...`; separated, colon, and equals values are recognized for the SDK's aliases. |
+| `-v` / `--verbosity` / MSBuild verbosity aliases | Canonical `--verbosity <value>`, including `-v:minimal`. |
+| `/p:Name=Value`, `-property:...`, other property-prefix aliases | Canonical `-p:Name=Value`; simple values retain spaces and embedded equals signs. |
+| `--nologo`, `--no-logo`, `-nologo`, `/nologo` | Consume the compatibility flag; the package has no product logo and the child SDK uses `DOTNET_NOLOGO=1`. The Agent Mode activation notice remains. |
+| `--no-restore` | Forward unchanged. |
+| `--no-incremental` | Forward the package's existing rebuild alias unchanged; never rewrite it as `--force`. The package may perform one stock Rebuild internally rather than use its resident engine. |
+| `--version-suffix`, project `--output` / `-o`, `--artifacts-path` | Corresponding MSBuild properties; path values are made absolute. Solution output overrides remain stock. |
+| `--force` | Stock SDK: this means forced **restore**, not FastBuild's conflicting rebuild flag. |
+| `--no-dependencies`, explicit `BuildProjectReferences` property | Stock SDK: the pinned package otherwise schedules its own dependency closure. |
+| Explicit targets such as `/t:test`, binary-log/logger switches | Stock SDK; do not silently drop targets, requested log paths, or logging behavior. |
+| Grouped/quoted property lists, reserved/filtered package properties, explicit Platform, empty TargetFramework override | Stock SDK pending parser/semantic parity; the package must not silently alter requested properties. |
 
 Help, directives, explicit response files, queries, multiple/missing/ambiguous targets,
 file-based apps, other verbs, and other switches stay with the SDK **before** any
-activation message or tool launch. This intentionally includes output/runtime switches,
-explicit targets, binary-log switches, no-incremental, and disabling build servers.
+activation message or tool launch. This includes runtime/architecture/self-contained
+switches, restore-specific options, and disabling build servers. Nonempty ambient
+`Configuration` or `Platform` also remains stock because the pinned package does not
+reconcile that environment with resident-server identity. Broader environment parity
+is still upstream work; passing all arguments is not a substitute for that work.
 This is a bounded prototype, not a claim of universal build-system compatibility.
 
 On activation the CLI emits a short localized runtime message. It pins the package's
@@ -293,6 +313,51 @@ Standard SDK process/reaper infrastructure preserves streams, working directory,
 interruption handling, and the child exit code. A failed accelerator build is **not**
 retried through another engine. Resident-server correctness and broader project/custom
 target compatibility remain properties of the experimental package.
+
+### Evaluation setup and routing diagnostics
+
+On XiaoYun's Windows machine, use a checkout containing these SDK changes and run the
+same `Setup` and `Verify` steps above. No globally installed SDK or persistent PATH
+changes are needed. Then open a configured shell in the evaluation repository:
+
+```powershell
+pwsh -NoProfile -File .github\skills\agent-mode-buildx\scripts\Prototype.ps1 Shell `
+  -WorkingDirectory C:\path\to\evaluation-repository
+# In that shell, check the selected SDK before starting the agent/evaluation harness:
+dotnet --version
+```
+
+Start the agent from that shell so it inherits the custom SDK/tool environment. Keep
+its normal `dotnet build` commands. Preserve the repository's `global.json`: if it
+selects an older SDK, routing will not be added by changing PATH alone. Confirm that
+the reported version is the custom SDK, and keep the actual agent detection markers;
+use `DOTNET_AGENT_MODE=on` only for an explicitly forced control.
+
+`DOTNET_AGENT_LOG_DIR` produces a unique JSON file per completed direct build
+invocation, including stock controls, with schema version, UTC timestamp, process ID,
+route (`buildx`, `sdk`, or `error`), stable reason code, selected SDK directory, and
+exit code. It stores **no argument arrays or property values** and does not upload
+anything. Set a new absolute directory per evaluation run, retain it with harness
+results, and exclude `recursive-bypass` records when counting top-level attempts.
+An invalid/unwritable configured logging location is an explicit error, not a
+success-shaped fallback.
+
+For example, summarize one run in the configured shell:
+
+```powershell
+Get-ChildItem -LiteralPath $env:DOTNET_AGENT_LOG_DIR -Filter '*.json' |
+  ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
+  Group-Object Route, Reason, ExitCode | Select-Object Count, Name
+```
+
+At detailed/diagnostic build verbosity (for example `-v:diag`), stderr includes the
+translated buildx command **only when buildx is launched**, or the stock-route reason
+when it is declined. There is deliberately no fictional buildx command for an
+incompatible request. High-verbosity console logs can contain property values/secrets;
+do not enable/share them indiscriminately. Default/query stdout remains unchanged.
+`buildx` in these records means the real client was selected, not proof of resident
+engine use or a performance gain: the package's own logs may show an internal stock
+build, a no-op, or resident execution.
 
 ## Follow-up work
 

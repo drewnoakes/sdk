@@ -6,6 +6,7 @@ param(
     [string] $Action,
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',
+    [string] $WorkingDirectory,
     [switch] $Interactive
 )
 
@@ -216,11 +217,14 @@ try {
     $env:DOTNET_AGENT_MODE = $null
     $env:DOTNET_AGENT_BUILDX_PATH = $buildx
     $env:DOTNET_CLI_HOME = Join-Path $stateDirectory 'home'
+    $routingDirectory = Join-Path $stateDirectory "routing\$Action-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$PID"
+    $env:DOTNET_AGENT_LOG_DIR = $routingDirectory
 
     if ($Action -eq 'Stop') { Stop-SampleServer; Stop-PrivateSdkServers; return }
     if ($Action -eq 'Shell') {
-        Check (Test-Path -LiteralPath $project) 'Run Verify to create the isolated sample first.'
-        Push-Location $sample
+        $shellDirectory = if ($WorkingDirectory) { [IO.Path]::GetFullPath($WorkingDirectory, $repositoryRoot) } else { $sample }
+        Check (Test-Path -LiteralPath $shellDirectory -PathType Container) 'The shell working directory does not exist. Run Verify first for the default sample.'
+        Push-Location $shellDirectory
         try {
             Write-Host "Process-scoped custom SDK shell. Run dotnet build; exit to restore the parent environment."
             & (Get-Process -Id $PID).Path -NoLogo -NoProfile -NoExit
@@ -321,7 +325,21 @@ try {
         Check ($propertyProof.Trim() -eq 'hello world') 'Configuration/framework/property argument translation changed a value.'
         $query = Run-Check 'property-query' @('build', '-getProperty:TargetFramework') $false
         Check ($query.StdOut.Trim() -eq $targetFramework) 'The property-query output was polluted.'
-        $null = Run-Check 'unsupported-rebuild' @('build', '--no-incremental') $false
+        $null = Run-Check 'rebuild' @('build', '--no-incremental') $true
+        $null = Run-Check 'logo-and-aliases' @('build', '--nologo', '--configuration=Debug', "-f:$targetFramework",
+            '-v:minimal', '/p:SkipBunCompile=true', '--no-restore') $true
+        $null = Run-Check 'no-dependencies' @('build', '--no-dependencies', '--no-restore') $false
+        $null = Run-Check 'force-restore' @('build', '--force') $false
+        $null = Run-Check 'custom-target' @('build', '/t:Build', '--no-restore') $false
+        $null = Run-Check 'dependency-property' @('build', '/p:BuildProjectReferences=false', '--no-restore') $false
+        $diagnostic = Run-Check 'verbose-command' @('build', '-v:diag', '--nologo', '--no-restore') $true
+        Check ($diagnostic.StdErr.Contains('Agent mode buildx command:')) 'The detailed command diagnostic was not emitted.'
+        $fallbackDiagnostic = Run-Check 'verbose-fallback' @('build', '--no-dependencies', '-v:detailed', '--no-restore') $false
+        Check ($fallbackDiagnostic.StdErr.Contains('unsupported-option:no-dependencies')) 'The fallback reason was not emitted.'
+        $null = Run-Check 'relative-output' @('build', '-o', '..\compat-output', '--no-restore') $true
+        Check (Test-Path -LiteralPath (Join-Path $stateDirectory 'compat-output\Sample.dll')) 'The output-path translation did not produce the requested assembly.'
+        $null = Run-Check 'artifacts-path' @('build', '--artifacts-path', '..\compat-artifacts') $true
+        Check (@(Get-ChildItem (Join-Path $stateDirectory 'compat-artifacts\bin') -Recurse -Filter Sample.dll).Count -gt 0) 'The artifacts-path translation did not produce the requested assembly.'
         $null = Run-Check 'invalid-verbosity' @('build', '--verbosity', 'invalid') $false $false
         $env:DOTNET_AGENT_BUILDX_PATH = Join-Path $stateDirectory 'missing.exe'
         $null = Run-Check 'invalid-tool-path' @('build') $false $false
@@ -340,6 +358,12 @@ try {
         Check ((Get-FileHash -LiteralPath $longReference).Hash -eq (Get-FileHash -LiteralPath $copiedReference).Hash) 'Long-path assembly resolution/copy changed its bytes.'
         Stop-SampleServer
         Check (@(Get-SampleServers).Count -eq 0) 'The sample server did not exit.'
+        $routingRecords = @(Get-ChildItem -LiteralPath $routingDirectory -Filter '*.json' | ForEach-Object {
+            Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
+        })
+        Check (@($routingRecords | Where-Object { $_.Route -eq 'sdk' -and $_.Reason -eq 'unsupported-option:no-dependencies' }).Count -gt 0) 'The SDK fallback was not recorded.'
+        Check (@($routingRecords | Where-Object { $_.Route -eq 'buildx' -and $_.ExitCode -ne 0 }).Count -gt 0) 'The accelerator failure was not recorded.'
+        Check (@($routingRecords | Where-Object Reason -EQ 'recursive-bypass').Count -gt 0) 'Nested SDK recursion bypass was not recorded.'
         Stop-PrivateSdkServers
         $serverStopped = $true
 
@@ -364,6 +388,7 @@ try {
             TargetFramework = $targetFramework
             SdkTargetFramework = $identity.SdkTargetFramework
             TelemetryOptOut = $env:DOTNET_CLI_TELEMETRY_OPTOUT
+            RoutingLogDirectory = $routingDirectory
             Checks = $results
         } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $stateDirectory 'verification.json')
         Write-Host "Passed $($results.Count) real-package/control checks. Evidence: $stateDirectory\verification.json"
