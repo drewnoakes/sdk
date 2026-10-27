@@ -31,7 +31,7 @@ internal static class AgentModeBuildxDispatcher
         {
             // Keep query stdout machine-readable and avoid repeating notices in nested SDK builds.
             Reporter.Error.WriteLine(reason == "msbuild-property-override"
-                ? CliCommandStrings.AgentModeBuildxPropertyOverride
+                ? string.Format(CliCommandStrings.AgentModeBuildxPropertyOverride, reason)
                 : string.Format(CliCommandStrings.AgentModeBuildxStock, reason));
         }
     }

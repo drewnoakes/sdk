@@ -322,6 +322,7 @@ try {
         $propertyFallback = Run-Check 'property-override' @('build', 'Sample.csproj', '-c', 'Release', '-f', $targetFramework,
             '--no-restore', '-p:AgentModeProbe=hello world') $false
         Check ($propertyFallback.StdErr.Contains('buildx skipped due to MSBuild property override')) 'The explicit-property fallback notice was not emitted.'
+        Check ($propertyFallback.StdErr.Contains('(msbuild-property-override)')) 'The stable property-override reason code was not emitted.'
         $propertyProof = Get-Content -LiteralPath (Join-Path $sample "obj\Release\$targetFramework\agent-property.txt") -Raw
         Check ($propertyProof.Trim() -eq 'hello world') 'The stock fallback lost the explicit property value.'
         $query = Run-Check 'property-query' @('build', '-getProperty:TargetFramework') $false

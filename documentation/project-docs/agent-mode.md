@@ -399,8 +399,17 @@ acceleration was not used. Nested bypass invocations do not repeat these notices
 ordinary no-agent/disabled/unprovisioned calls stay quiet unless verbosity is raised.
 Query stdout stays machine-readable.
 Explicit property overrides instead produce the clearer
-`Agent mode: buildx skipped due to MSBuild property override; using the stock SDK.`
+`Agent mode: buildx skipped due to MSBuild property override; using the stock SDK (msbuild-property-override).`
 without printing the property name/value.
+
+For post-benchmark analysis, attach the console notice and harness-reported exit code
+to the originating tool call, then group stock fallbacks by their parenthesized reason
+code. The codes are not localized; the prototype shell also selects English UI output
+for consistent notice text. Keep routing and success/failure as separate fields:
+buildx can fail, and a stock fallback can succeed. No coverage threshold or
+representative-command survey is required before handing off the prototype; examine
+fallback frequency after the benchmark. A missing notice is not evidence that buildx
+ran: disabled/no-agent and non-execution paths may be silent.
 
 At detailed/diagnostic build verbosity (for example `-v:diag`), stderr also includes
 the exact translated buildx command **only when it is launched**. There is deliberately

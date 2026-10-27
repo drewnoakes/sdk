@@ -173,8 +173,8 @@
     <comment>{0} is a stable diagnostic reason code, not a translated message.</comment>
   </data>
   <data name="AgentModeBuildxPropertyOverride" xml:space="preserve">
-    <value>Agent mode: buildx skipped due to MSBuild property override; using the stock SDK.</value>
-    <comment>{Locked="buildx"} {Locked="MSBuild"}</comment>
+    <value>Agent mode: buildx skipped due to MSBuild property override; using the stock SDK ({0}).</value>
+    <comment>{0} is a stable diagnostic reason code, not a translated message. {Locked="buildx"} {Locked="MSBuild"}</comment>
   </data>
   <data name="AgentModeInvalidMode" xml:space="preserve">
     <value>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</value>

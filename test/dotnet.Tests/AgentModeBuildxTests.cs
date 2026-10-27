@@ -357,6 +357,7 @@ public class AgentModeBuildxTests : SdkTest
             .Execute("build", property, "--no-restore");
         result.ExitCode.Should().NotBe(0);
         result.StdErr.Should().NotContain("hello world").And.NotContain("not-a-tool");
+        result.StdErr.Should().Contain("(msbuild-property-override)");
         if (!SdkTestContext.IsLocalized())
         {
             result.StdErr.Should().Contain("buildx skipped due to MSBuild property override");
