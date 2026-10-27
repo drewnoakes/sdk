@@ -32,7 +32,10 @@ internal static class CommandInvocation
         try
         {
 #if !CLI_AOT
-            // NativeAOT already defers build execution to this managed invocation boundary.
+            // The native CLI currently falls back here for build, so Agent Mode still works.
+            // TODO: Link the shared dispatcher into AOT, extract AOT-safe target discovery, and forward
+            // original arguments plus host/SDK context so eligible builds dispatch before managed fallback.
+            // See documentation/project-docs/agent-mode.md#nativeaot-sdk-side-agent-mode-dispatch.
             if (AgentModeBuildxDispatcher.TryExecute(parseResult, arguments, out exitCode))
             {
                 return exitCode;

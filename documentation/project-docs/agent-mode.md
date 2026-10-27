@@ -340,6 +340,24 @@ detection/eligibility/dispatch logic into that existing native CLI and invoke th
 external tool from there. This could avoid initializing CoreCLR and the managed
 `dotnet.dll` merely to dispatch an eligible build.
 
+Agent Mode must work when an installed SDK selects the native CLI entry point.
+That does not mean the build handler itself already runs natively:
+[the AOT command configuration](../../src/Cli/dotnet/Parser.cs) currently leaves
+`build` on managed fallback, and
+[NativeEntryPoint](../../src/Cli/dotnet-aot/NativeEntryPoint.cs) hosts `dotnet.dll`
+through hostfxr. This prototype therefore works from either entry mode, but its
+Agent Mode hook executes only after that managed initialization. Native entry is
+the default when the native CLI is available and enabled; this is not a claim that
+every installed SDK version/platform ships it.
+
+The target final state is native SDK-side dispatch for eligible agent builds,
+with managed fallback retained for unsupported shapes and first-run work that needs
+it. No intrinsic AOT incompatibility in agent detection or process launching has
+been established. The known gaps are the unlinked dispatcher, the MSBuild-dependent
+discovery utility, and missing original-argument/host-context plumbing described
+below; a clean native publish and execution proof are still required. This does
+not require compiling the MSBuild engine with AOT.
+
 This SDK-only option is distinct from loading the FastBuild engine into the SDK or
 the generated native apphost used by this demo. It would leave the external
 FastBuild client/server unchanged and may still incur their managed-runtime startup.
