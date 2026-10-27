@@ -53,14 +53,14 @@ public class AgentModeBuildxTests : SdkTest
         File.WriteAllText(project, "<Project />");
         string[] arguments = [
             "build", "My App.csproj", "-c", "Release", "-f", ToolsetInfo.CurrentTargetFramework,
-            "--no-restore", "-v", "quiet", "/p:Example=hello world", "--property:Other=two"
+            "--no-restore", "-v", "quiet"
         ];
 
         AgentModeBuildxDispatcher.TryGetBuildxArguments(
             Parser.Parse(arguments), arguments, directory, out string[] translated).Should().BeTrue();
         translated.Should().Equal(
             project, "--server", "-p:Configuration=Release", $"-p:TargetFramework={ToolsetInfo.CurrentTargetFramework}",
-            "--no-restore", "--verbosity", "quiet", "-p:Example=hello world", "-p:Other=two");
+            "--no-restore", "--verbosity", "quiet");
     }
 
     [TestMethod]
@@ -68,10 +68,6 @@ public class AgentModeBuildxTests : SdkTest
     [DataRow("-c:Release", "-p:Configuration=Release")]
     [DataRow("--framework=net11.0", "-p:TargetFramework=net11.0")]
     [DataRow("-f:net11.0", "-p:TargetFramework=net11.0")]
-    [DataRow("/p:SkipBunCompile=true", "-p:SkipBunCompile=true")]
-    [DataRow("-property:Example=hello world", "-p:Example=hello world")]
-    [DataRow("--p:Example=a=b", "-p:Example=a=b")]
-    [DataRow("--version-suffix=demo", "-p:VersionSuffix=demo")]
     [DataRow("--no-incremental", "--no-incremental")]
     public void NormalizesCompatibleOptions(string argument, string expected)
     {
@@ -120,7 +116,7 @@ public class AgentModeBuildxTests : SdkTest
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    public void ExplicitPropertiesOverrideCliOptionsRegardlessOfPosition(bool propertyFirst)
+    public void ExplicitPropertiesRemainStockRegardlessOfPosition(bool propertyFirst)
     {
         string directory = TestAssetsManager.CreateTestDirectory(identifier: propertyFirst.ToString()).Path;
         string project = Path.Combine(directory, "App.csproj");
@@ -129,35 +125,45 @@ public class AgentModeBuildxTests : SdkTest
             ? ["build", "-p:Configuration=Debug", "-c", "Release"]
             : ["build", "-c", "Release", "-p:Configuration=Debug"];
         AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
-            out string[] translated).Should().BeTrue();
-        translated.Should().Equal(project, "--server", "-p:Configuration=Release", "-p:Configuration=Debug");
+            out string[] translated, out string reason).Should().BeFalse();
+        translated.Should().BeEmpty();
+        reason.Should().Be("msbuild-property-override");
     }
 
     [TestMethod]
-    [DataRow("-o", "OutputPath")]
-    [DataRow("--artifacts-path", "ArtifactsPath")]
-    public void ResolvesOutputPathsAgainstTheCallerDirectory(string option, string property)
+    [DataRow("-o")]
+    [DataRow("--output")]
+    [DataRow("--artifacts-path")]
+    public void OutputOverridesStayWithTheSdk(string option)
     {
-        string directory = TestAssetsManager.CreateTestDirectory(identifier: property).Path;
+        string directory = TestAssetsManager.CreateTestDirectory(identifier: option).Path;
         string project = Path.Combine(directory, "App.csproj");
         File.WriteAllText(project, "<Project />");
         string[] arguments = ["build", option, "output with spaces"];
         AgentModeBuildxDispatcher.TryGetBuildxArguments(Parser.Parse(arguments), arguments, directory,
-            out string[] translated).Should().BeTrue();
-        translated.Should().Equal(project, "--server", $"-p:{property}={Path.Combine(directory, "output with spaces")}");
+            out string[] translated, out string reason).Should().BeFalse();
+        translated.Should().BeEmpty();
+        reason.Should().Be("output-path-override");
     }
 
     [TestMethod]
     [DataRow("--no-dependencies", "unsupported-option:no-dependencies")]
     [DataRow("--force", "unsupported-option:force")]
+    [DataRow("--version-suffix=demo", "unsupported-option:version-suffix")]
     [DataRow("/t:test", "unsupported-option:t")]
     [DataRow("-bl:requested.binlog", "unsupported-option:bl")]
-    [DataRow("/p:BuildProjectReferences=false", "unsupported-property")]
-    [DataRow("-p:Platform=Any CPU", "unsupported-property")]
-    [DataRow("-p:IsImplicitlyTriggeredBuild=false", "unsupported-property")]
-    [DataRow("-p:TargetFramework=", "unsupported-property")]
-    [DataRow("-p:A=1;B=2", "unsupported-property")]
-    [DataRow("-p:Example=\"a,b\"", "unsupported-property")]
+    [DataRow("/p:BuildProjectReferences=false", "msbuild-property-override")]
+    [DataRow("-p:Platform=Any CPU", "msbuild-property-override")]
+    [DataRow("-p:IsImplicitlyTriggeredBuild=false", "msbuild-property-override")]
+    [DataRow("-p:TargetFramework=", "msbuild-property-override")]
+    [DataRow("-p:A=1;B=2", "msbuild-property-override")]
+    [DataRow("-p:Example=\"a,b\"", "msbuild-property-override")]
+    [DataRow("/property:SkipBunCompile=true", "msbuild-property-override")]
+    [DataRow("--p:Example=a=b", "msbuild-property-override")]
+    [DataRow("-property:Example=hello world", "msbuild-property-override")]
+    [DataRow("--property:Configuration=Release", "msbuild-property-override")]
+    [DataRow("--output=out", "output-path-override")]
+    [DataRow("--artifacts-path:out", "output-path-override")]
     public void ReportsIncompatibleSemanticsBeforeLaunching(string argument, string expectedReason)
     {
         string directory = TestAssetsManager.CreateTestDirectory(identifier: expectedReason.Replace(':', '_')).Path;
@@ -291,23 +297,22 @@ public class AgentModeBuildxTests : SdkTest
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BypassVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, probe)
-            .Execute("build", "-c", "Release", "-p:Example=hello world", "-v:" + verbosity);
+            .Execute("build", "-c", "Release with spaces", "-v:" + verbosity);
 
         result.ExitCode.Should().Be(37);
         if (verbosity == "diag")
         {
-            result.StdErr.Should().Contain("hello world");
+            result.StdErr.Should().Contain("Release with spaces");
         }
         else
         {
-            result.StdErr.Should().NotContain("hello world");
+            result.StdErr.Should().NotContain("Release with spaces");
         }
         result.StdOut.Should().Contain("buildx-probe")
             .And.Contain("1" + Environment.NewLine)
             .And.Contain(asset.Path)
             .And.Contain("--server")
-            .And.Contain("-p:Configuration=Release")
-            .And.Contain("-p:Example=hello world");
+            .And.Contain("-p:Configuration=Release with spaces");
         result.StdOut.Should().NotContain("Microsoft.FastBuild");
         if (!SdkTestContext.IsLocalized())
         {
@@ -335,6 +340,26 @@ public class AgentModeBuildxTests : SdkTest
         if (!SdkTestContext.IsLocalized())
         {
             result.StdErr.Should().Contain("Agent mode: using the stock SDK (unsupported-option:no-dependencies).");
+        }
+
+    }
+
+    [TestMethod]
+    [DataRow("-p:Example=hello world")]
+    [DataRow("/property:Example=hello world")]
+    [DataRow("--property:Configuration=Release")]
+    public void ExplainsPropertyOverridesWithoutLaunchingTheTool(string property)
+    {
+        var asset = TestAssetsManager.CopyTestAsset("TestAppSimple", identifier: property.Replace(':', '_')).WithSource();
+        var result = new DotnetCommand(Log).WithWorkingDirectory(asset.Path)
+            .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "on")
+            .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, "not-a-tool")
+            .Execute("build", property, "--no-restore");
+        result.ExitCode.Should().NotBe(0);
+        result.StdErr.Should().NotContain("hello world").And.NotContain("not-a-tool");
+        if (!SdkTestContext.IsLocalized())
+        {
+            result.StdErr.Should().Contain("buildx skipped due to MSBuild property override");
         }
     }
 }

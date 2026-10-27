@@ -318,14 +318,17 @@ try {
         $null = Run-Check 'unprovisioned' @('build') $false
         $env:DOTNET_AGENT_BUILDX_PATH = $buildx
         $null = Run-Check 'supported-arguments' @('build', 'Sample.csproj', '-c', 'Release', '-f', $targetFramework,
-            '-v', 'quiet', '--no-restore', '-p:AgentModeProbe=hello world') $true
+            '-v', 'quiet', '--no-restore') $true
+        $propertyFallback = Run-Check 'property-override' @('build', 'Sample.csproj', '-c', 'Release', '-f', $targetFramework,
+            '--no-restore', '-p:AgentModeProbe=hello world') $false
+        Check ($propertyFallback.StdErr.Contains('buildx skipped due to MSBuild property override')) 'The explicit-property fallback notice was not emitted.'
         $propertyProof = Get-Content -LiteralPath (Join-Path $sample "obj\Release\$targetFramework\agent-property.txt") -Raw
-        Check ($propertyProof.Trim() -eq 'hello world') 'Configuration/framework/property argument translation changed a value.'
+        Check ($propertyProof.Trim() -eq 'hello world') 'The stock fallback lost the explicit property value.'
         $query = Run-Check 'property-query' @('build', '-getProperty:TargetFramework') $false
         Check ($query.StdOut.Trim() -eq $targetFramework) 'The property-query output was polluted.'
         $null = Run-Check 'rebuild' @('build', '--no-incremental') $true
         $null = Run-Check 'logo-and-aliases' @('build', '--nologo', '--configuration=Debug', "-f:$targetFramework",
-            '-v:minimal', '/p:SkipBunCompile=true', '--no-restore') $true
+            '-v:minimal', '--no-restore') $true
         $fallback = Run-Check 'no-dependencies' @('build', '--no-dependencies', '--no-restore') $false
         Check ($fallback.StdErr.Contains('Agent mode: using the stock SDK (unsupported-option:no-dependencies).')) 'The default console fallback notice was not emitted.'
         $null = Run-Check 'force-restore' @('build', '--force') $false
@@ -335,10 +338,10 @@ try {
         Check ($diagnostic.StdErr.Contains('Agent mode buildx command:')) 'The detailed command diagnostic was not emitted.'
         $fallbackDiagnostic = Run-Check 'verbose-fallback' @('build', '--no-dependencies', '-v:detailed', '--no-restore') $false
         Check ($fallbackDiagnostic.StdErr.Contains('unsupported-option:no-dependencies')) 'The fallback reason was not emitted.'
-        $null = Run-Check 'relative-output' @('build', '-o', '..\compat-output', '--no-restore') $true
-        Check (Test-Path -LiteralPath (Join-Path $stateDirectory 'compat-output\Sample.dll')) 'The output-path translation did not produce the requested assembly.'
-        $null = Run-Check 'artifacts-path' @('build', '--artifacts-path', '..\compat-artifacts') $true
-        Check (@(Get-ChildItem (Join-Path $stateDirectory 'compat-artifacts\bin') -Recurse -Filter Sample.dll).Count -gt 0) 'The artifacts-path translation did not produce the requested assembly.'
+        $null = Run-Check 'relative-output' @('build', '-o', '..\compat-output', '--no-restore') $false
+        Check (Test-Path -LiteralPath (Join-Path $stateDirectory 'compat-output\Sample.dll')) 'The stock output-path fallback did not produce the requested assembly.'
+        $null = Run-Check 'artifacts-path' @('build', '--artifacts-path', '..\compat-artifacts') $false
+        Check (@(Get-ChildItem (Join-Path $stateDirectory 'compat-artifacts\bin') -Recurse -Filter Sample.dll).Count -gt 0) 'The stock artifacts-path fallback did not produce the requested assembly.'
         $null = Run-Check 'invalid-verbosity' @('build', '--verbosity', 'invalid') $false $false
         $env:DOTNET_AGENT_BUILDX_PATH = Join-Path $stateDirectory 'missing.exe'
         $null = Run-Check 'invalid-tool-path' @('build') $false $false
@@ -352,7 +355,11 @@ try {
         $longReference = Join-Path $longDirectory 'LongReference.dll'
         Check ($longReference.Length -gt 260) 'The long-path probe must exceed MAX_PATH.'
         Copy-Item -LiteralPath (Join-Path $packagedServer 'fastbuild-server.dll') -Destination $longReference -Force
-        $null = Run-Check 'long-path-reference' @('build', "-p:LongPathReference=$longReference") $true
+        $null = Run-Check 'long-path-reference' @('build', "-p:LongPathReference=$longReference") $false
+        # Qualify the generated launcher separately; the SDK intentionally declines raw property overrides.
+        $serverProbe = Invoke-Captured $buildx @($project, '--server', "-p:LongPathReference=$longReference") $sample
+        ($serverProbe.StdOut + $serverProbe.StdErr) | Set-Content -LiteralPath (Join-Path $stateDirectory 'packaged-server-long-path.log')
+        Check (($serverProbe.ExitCode -eq 0) -and $serverProbe.StdOut.Contains('[server]')) 'The direct packaged-server long-path probe failed.'
         $copiedReference = Join-Path $sample "bin\Debug\$targetFramework\long-reference.dll"
         Check ((Get-FileHash -LiteralPath $longReference).Hash -eq (Get-FileHash -LiteralPath $copiedReference).Hash) 'Long-path assembly resolution/copy changed its bytes.'
         Stop-SampleServer

@@ -279,22 +279,21 @@ Supported forms are an existing explicit `.csproj`, `.vbproj`, `.sln`, `.slnx`, 
 `.slnf`, or an unambiguous default/directory target resolved by the SDK's existing
 project/solution helper. The adapter targets the **pinned package's actual capabilities**,
 not unshipped changes in other FastBuild branches. Arguments are passed individually,
-including values with spaces. SDK options are translated before explicit MSBuild
-properties, preserving explicit property override precedence.
+including values with spaces. Only modeled build dimensions are translated;
+explicit MSBuild property overrides remain on the original SDK path.
 
 | `dotnet build` input | Pinned-package mapping or fallback |
 | --- | --- |
 | `-c` / `--configuration`, `-f` / `--framework` | `-p:Configuration=...` / `-p:TargetFramework=...`; separated, colon, and equals values are recognized for the SDK's aliases. |
 | `-v` / `--verbosity` / MSBuild verbosity aliases | Canonical `--verbosity <value>`, including `-v:minimal`. |
-| `/p:Name=Value`, `-property:...`, other property-prefix aliases | Canonical `-p:Name=Value`; simple values retain spaces and embedded equals signs. |
+| `/p:Name=Value`, `-property:...`, other property-prefix aliases | Stock SDK for **all** explicit properties, including `Configuration` or `TargetFramework` expressed this way; emit a property-override explanation. Accepting a property syntactically does not establish cache correctness. |
 | `--nologo`, `--no-logo`, `-nologo`, `/nologo` | Consume the compatibility flag; the package has no product logo and the child SDK uses `DOTNET_NOLOGO=1`. The Agent Mode activation notice remains. |
 | `--no-restore` | Forward unchanged. |
 | `--no-incremental` | Forward the package's existing rebuild alias unchanged; never rewrite it as `--force`. The package may perform one stock Rebuild internally rather than use its resident engine. |
-| `--version-suffix`, project `--output` / `-o`, `--artifacts-path` | Corresponding MSBuild properties; path values are made absolute. Solution output overrides remain stock. |
+| `--output` / `-o`, `--artifacts-path`, `--version-suffix` | Stock SDK until their cache identity/invalidation semantics are established; do not translate these into generic properties. |
 | `--force` | Stock SDK: this means forced **restore**, not FastBuild's conflicting rebuild flag. |
 | `--no-dependencies`, explicit `BuildProjectReferences` property | Stock SDK: the pinned package otherwise schedules its own dependency closure. |
 | Explicit targets such as `/t:test`, binary-log/logger switches | Stock SDK; do not silently drop targets, requested log paths, or logging behavior. |
-| Grouped/quoted property lists, reserved/filtered package properties, explicit Platform, empty TargetFramework override | Stock SDK pending parser/semantic parity; the package must not silently alter requested properties. |
 
 Help, directives, explicit response files, queries, multiple/missing/ambiguous targets,
 file-based apps, other verbs, and other switches stay with the SDK **before** any
@@ -304,6 +303,11 @@ switches, restore-specific options, and disabling build servers. Nonempty ambien
 reconcile that environment with resident-server identity. Broader environment parity
 is still upstream work; passing all arguments is not a substitute for that work.
 This is a bounded prototype, not a claim of universal build-system compatibility.
+Configuration and target framework are dedicated request/cache dimensions in the
+pinned package; the SDK currently expresses those typed options using the package's
+`-p:` transport. This does not enable user-supplied generic properties. Native CLI
+configuration/framework aliases are being prepared upstream; consuming a qualified
+package with those aliases can remove that transport translation.
 
 On activation the CLI emits a short localized runtime message. It pins the package's
 `FASTBUILD_SDK_PATH` to the already selected SDK, supplies the selected host/root to the
@@ -340,6 +344,9 @@ runs. Stable reason codes such as `unsupported-option:no-dependencies` explain w
 acceleration was not used. Nested bypass invocations do not repeat these notices;
 ordinary no-agent/disabled/unprovisioned calls stay quiet unless verbosity is raised.
 Query stdout stays machine-readable.
+Explicit property overrides instead produce the clearer
+`Agent mode: buildx skipped due to MSBuild property override; using the stock SDK.`
+without printing the property name/value.
 
 At detailed/diagnostic build verbosity (for example `-v:diag`), stderr also includes
 the exact translated buildx command **only when it is launched**. There is deliberately

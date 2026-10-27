@@ -30,7 +30,9 @@ internal static class AgentModeBuildxDispatcher
         if (detailed || reason is not ("disabled" or "unprovisioned" or "no-agent"))
         {
             // Keep query stdout machine-readable and avoid repeating notices in nested SDK builds.
-            Reporter.Error.WriteLine(string.Format(CliCommandStrings.AgentModeBuildxStock, reason));
+            Reporter.Error.WriteLine(reason == "msbuild-property-override"
+                ? CliCommandStrings.AgentModeBuildxPropertyOverride
+                : string.Format(CliCommandStrings.AgentModeBuildxStock, reason));
         }
     }
 
@@ -135,7 +137,6 @@ internal static class AgentModeBuildxDispatcher
         // Microsoft.FastBuild is not an argv-transparent dotnet build replacement. Unknown forms
         // must remain with the SDK before launching anything, rather than losing a switch or retrying.
         List<string> options = [];
-        List<string> explicitProperties = [];
         string? target = null;
         for (int i = 1; i < arguments!.Length; i++)
         {
@@ -168,7 +169,7 @@ internal static class AgentModeBuildxDispatcher
             string name = spelling.TrimStart('-', '/').ToLowerInvariant();
             string? value = separator < 0 ? null : argument[(separator + 1)..];
             reason = "unsupported-option:" + name;
-            bool cliOption = spelling is "-c" or "--configuration" or "-f" or "--framework" or "--version-suffix"
+            bool cliOption = spelling is "-c" or "--configuration" or "-f" or "--framework"
                 or "-o" or "--output" or "--artifacts-path" or "--no-restore" or "--no-incremental" or "--no-logo";
             bool msbuildOption = spelling.ToLowerInvariant() is "-p" or "--p" or "/p" or "-property" or "--property"
                 or "/property" or "-v" or "--v" or "/v" or "-verbosity" or "--verbosity" or "/verbosity"
@@ -176,8 +177,13 @@ internal static class AgentModeBuildxDispatcher
             if (!cliOption && !msbuildOption) { return false; }
             switch (name)
             {
-                case "c" or "configuration" or "f" or "framework" or "v" or "verbosity"
-                    or "p" or "property" or "version-suffix" or "o" or "output" or "artifacts-path":
+                case "p" or "property":
+                    reason = "msbuild-property-override";
+                    return false;
+                case "o" or "output" or "artifacts-path":
+                    reason = "output-path-override";
+                    return false;
+                case "c" or "configuration" or "f" or "framework" or "v" or "verbosity":
                     if (value is null && ++i < arguments.Length)
                     {
                         value = arguments[i];
@@ -186,12 +192,6 @@ internal static class AgentModeBuildxDispatcher
                     {
                         reason = "missing-option-value:" + name;
                         return false;
-                    }
-                    if (name is "p" or "property")
-                    {
-                        if (!CanForwardProperties(value)) { reason = "unsupported-property"; return false; }
-                        explicitProperties.Add("-p:" + value);
-                        break;
                     }
                     if (name is "v" or "verbosity")
                     {
@@ -212,15 +212,8 @@ internal static class AgentModeBuildxDispatcher
                     string propertyName = name switch
                     {
                         "c" or "configuration" => "Configuration",
-                        "f" or "framework" => "TargetFramework",
-                        "version-suffix" => "VersionSuffix",
-                        "o" or "output" => "OutputPath",
-                        _ => "ArtifactsPath"
+                        _ => "TargetFramework"
                     };
-                    if (name is "o" or "output" or "artifacts-path")
-                    {
-                        value = Path.GetFullPath(value, workingDirectory);
-                    }
                     options.Add($"-p:{propertyName}={value}");
                     break;
                 case "no-restore" or "no-incremental":
@@ -251,37 +244,9 @@ internal static class AgentModeBuildxDispatcher
             return false;
         }
 
-        // Match the SDK's precedence: forwarded CLI options precede explicit MSBuild properties.
-        options.AddRange(explicitProperties);
-        // The package evaluates output properties per project rather than as a solution build.
-        if (Path.GetExtension(target).ToLowerInvariant() is not (".csproj" or ".vbproj") &&
-            options.Any(option => option.StartsWith("-p:OutputPath=", StringComparison.OrdinalIgnoreCase)))
-        {
-            reason = "solution-output";
-            return false;
-        }
         buildxArguments = [target, "--server", .. options];
         reason = "supported";
         return true;
-    }
-
-    private static bool CanForwardProperties(string properties)
-    {
-        // Avoid silently dropped/reserved dimensions in the pinned FastBuild parser.
-        // Complex grouped/quoted forms remain stock until both parsers have parity coverage.
-        if (properties.IndexOfAny([';', ',', '"']) >= 0)
-        {
-            return false;
-        }
-        int equals = properties.IndexOf('=');
-        if (equals <= 0) { return false; }
-        string name = properties[..equals].Trim();
-        return !string.IsNullOrEmpty(name) &&
-            !new[] { "Platform", "BuildProjectReferences", "IsImplicitlyTriggeredBuild", "FASTBUILD_PROVENANCE",
-                "FASTBUILD_RESTORE_PROVENANCE", "RestoreForce", "RestoreForceEvaluate", "CustomAfterMicrosoftCommonTargets",
-                "CustomAfterMicrosoftCommonCrossTargetingTargets" }
-                .Contains(name, StringComparer.OrdinalIgnoreCase) &&
-            !(name.Equals("TargetFramework", StringComparison.OrdinalIgnoreCase) && properties[(equals + 1)..].Length == 0);
     }
 
     internal static ProcessStartInfo CreateStartInfo(
