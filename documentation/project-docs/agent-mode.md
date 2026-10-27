@@ -21,12 +21,10 @@ Compare the prototype delta against that baseline, not an older fork's `origin/m
 
 ### Components and invocation paths
 
-`build-server` contains only the generated buildx server bundle, **not a component or
-service added to the .NET SDK** or all Agent Mode tooling. It contains a small native
-launcher, `fastbuild-server.exe`, and
-unchanged server files copied from the `Microsoft.FastBuild` package. The launcher
-loads the .NET runtime and starts the package's managed `fastbuild-server.dll`; it
-does not contain a different build engine or NativeAOT-compiled server.
+The SDK decides whether to redirect a build; the buildx client decides what needs
+building; and the resident buildx server hosts MSBuild from the selected SDK.
+The buildx client and server are separate from the SDK and come from the pinned
+tool package.
 
 | Component | Function | Invoked by |
 | --- | --- | --- |
@@ -108,7 +106,13 @@ manifest is not used for this private installation.
 
 The setup also creates a native apphost for the **unchanged packaged server DLLs** under
 `artifacts\agent-mode\build-server\11.9.10-preview`, using the bootstrap SDK's apphost
-template and `Microsoft.NET.HostModel`. Verification and the child shell explicitly set
+template and `Microsoft.NET.HostModel`. This versioned directory contains only the
+buildx server bundle, not all Agent Mode tooling: the generated `fastbuild-server.exe`,
+packaged `fastbuild-server.dll`, runtime/dependency metadata, and
+`Microsoft.Build.Locator.dll`. The launcher starts the managed server; it does not
+make the server itself NativeAOT-compiled.
+
+Verification and the child shell explicitly set
 `FASTBUILD_SERVER_EXE` to that launcher. This is a local provisioning **mitigation** for
 Windows handle inheritance: the package's managed-sidecar launch redirects its three
 standard streams, but an additional captured caller pipe can still survive in the
