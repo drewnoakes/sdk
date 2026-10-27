@@ -20,8 +20,8 @@ do not remove the platform guard without completing the port and real-platform c
    `pwsh -NoProfile -File .github\skills\agent-mode-buildx\scripts\Prototype.ps1 Setup`.
    It bootstraps the SDK pinned by `global.json`, installs exactly
    **Microsoft.FastBuild 11.9.10-preview** into that checkout, builds a Release redist,
-   and creates the documented native apphost
-   for the unchanged packaged server. Keep that scoped `FASTBUILD_SERVER_EXE` mitigation;
+   and creates the native apphost and unchanged packaged server bundle under
+   `artifacts\agent-mode\build-server\<version>`. Keep that scoped `FASTBUILD_SERVER_EXE` mitigation;
    otherwise redirected command capture can wait for daemon idle expiry. Add `-Interactive` only when the
    existing Azure Artifacts credential provider needs sign-in. Do not copy tokens or
    add credentials to the repository.

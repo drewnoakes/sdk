@@ -21,8 +21,9 @@ Compare the prototype delta against that baseline, not an older fork's `origin/m
 
 ### Components and invocation paths
 
-`server-host` is a generated prototype directory, **not a component or service added
-to the .NET SDK**. It contains a small native launcher, `fastbuild-server.exe`, and
+`build-server` contains only the generated buildx server bundle, **not a component or
+service added to the .NET SDK** or all Agent Mode tooling. It contains a small native
+launcher, `fastbuild-server.exe`, and
 unchanged server files copied from the `Microsoft.FastBuild` package. The launcher
 loads the .NET runtime and starts the package's managed `fastbuild-server.dll`; it
 does not contain a different build engine or NativeAOT-compiled server.
@@ -106,7 +107,7 @@ checked-in pins followed by the real-package verification. The repository-wide t
 manifest is not used for this private installation.
 
 The setup also creates a native apphost for the **unchanged packaged server DLLs** under
-`artifacts\agent-mode\server-host\11.9.10-preview`, using the bootstrap SDK's apphost
+`artifacts\agent-mode\build-server\11.9.10-preview`, using the bootstrap SDK's apphost
 template and `Microsoft.NET.HostModel`. Verification and the child shell explicitly set
 `FASTBUILD_SERVER_EXE` to that launcher. This is a local provisioning **mitigation** for
 Windows handle inheritance: the package's managed-sidecar launch redirects its three
@@ -162,7 +163,7 @@ pwsh -NoProfile -Command {
   $repo = (Get-Location).Path
   $env:PATH = "$repo\artifacts\bin\redist\Release\dotnet;$env:PATH"
   $env:DOTNET_AGENT_BUILDX_PATH = "$repo\artifacts\agent-mode\tools\dotnet-fastbuild.exe"
-  $env:FASTBUILD_SERVER_EXE = "$repo\artifacts\agent-mode\server-host\11.9.10-preview\fastbuild-server.exe"
+  $env:FASTBUILD_SERVER_EXE = "$repo\artifacts\agent-mode\build-server\11.9.10-preview\fastbuild-server.exe"
   $env:FASTBUILD_CACHE_DIR = "$repo\artifacts\agent-mode\cache"
   $env:DOTNET_AGENT_MODE = 'auto'
   $env:DOTNET_ADD_GLOBAL_TOOLS_TO_PATH = '0'
@@ -178,7 +179,7 @@ After `Stop`, optional file cleanup is confined to these generated directories; 
 the adjacent verification/log files if they are still useful:
 
 ```powershell
-Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\server-host,
+Remove-Item -LiteralPath artifacts\agent-mode\tools, artifacts\agent-mode\build-server,
   artifacts\agent-mode\sample, artifacts\agent-mode\home, artifacts\agent-mode\cache,
   artifacts\agent-mode\long-path -Recurse -Force
 ```
@@ -225,7 +226,7 @@ A newer feed version is a candidate, not automatically a supported version.
    `Prototype.ps1 Stop` with the old pins. Save both old pin values and the last
    successful verification/logs, then move
    `artifacts\agent-mode\tools` to a clearly named, unused backup directory. Retain the
-   old version's `server-host` directory. Update `$packageVersion` and `$packageSha256`
+   old version's `build-server` directory. Update `$packageVersion` and `$packageSha256`
    in [Prototype.ps1](../../.github/skills/agent-mode-buildx/scripts/Prototype.ps1) to the
    candidate's exact version and acquired SHA-256. Update this guide and the
    [skill](../../.github/skills/agent-mode-buildx/SKILL.md), including versioned example
