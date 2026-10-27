@@ -13,8 +13,8 @@ diagnostics, failure behavior, and an explicit opt-out.
 Ordinary `dotnet build` can use the experimental buildx engine inside an agent session.
 This prototype explicitly provisions the internal `Microsoft.FastBuild` package; its
 packaged command is still named `dotnet-fastbuild`. There is no automatic acquisition
-or update service yet. The eventual public design will acquire and service buildx
-independently of SDK releases, using a tool such as `dnx`.
+or update service yet. A future public design may acquire and service buildx
+independently of SDK releases, using a tool such as `dnx`; this remains undecided.
 
 The SDK source baseline for this prototype is `c70b3856e7948678daa3950ec5517759754bf47c`.
 Compare the prototype delta against that baseline, not an older fork's `origin/main`.
