@@ -172,10 +172,6 @@
     <value>Agent mode: using the stock SDK ({0}).</value>
     <comment>{0} is a stable diagnostic reason code, not a translated message.</comment>
   </data>
-  <data name="AgentModeBuildxInvalidLogPath" xml:space="preserve">
-    <value>Set {0} to an absolute directory for local Agent Mode routing logs.</value>
-    <comment>{0} is an environment variable name.</comment>
-  </data>
   <data name="AgentModeInvalidMode" xml:space="preserve">
     <value>Invalid value '{0}' for {1}. Use 'auto', 'on', or 'off'.</value>
     <comment>{0} is the supplied value; {1} is an environment variable name. {Locked="auto"} {Locked="on"} {Locked="off"}</comment>

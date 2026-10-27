@@ -18,6 +18,22 @@ internal static class AgentModeBuildxDispatcher
     internal const string BuildxPathVariable = "DOTNET_AGENT_BUILDX_PATH";
     internal const string BypassVariable = "DOTNET_AGENT_DISPATCH_BYPASS";
 
+    internal static void ReportFallback(ParseResult parseResult, string reason)
+    {
+        if (reason is "not-build" or "non-execution" or "recursive-bypass")
+        {
+            return;
+        }
+        bool detailed = CommandLoggingContext.IsVerbose || (parseResult.Errors.Count == 0 &&
+            parseResult.GetValue(Parser.RootCommand.BuildCommand.VerbosityOption) is
+                VerbosityOptions.detailed or VerbosityOptions.d or VerbosityOptions.diagnostic or VerbosityOptions.diag);
+        if (detailed || reason is not ("disabled" or "unprovisioned" or "no-agent"))
+        {
+            // Keep query stdout machine-readable and avoid repeating notices in nested SDK builds.
+            Reporter.Error.WriteLine(string.Format(CliCommandStrings.AgentModeBuildxStock, reason));
+        }
+    }
+
     internal static bool TryExecute(ParseResult parseResult, string[]? arguments, out int exitCode, out string reason)
     {
         exitCode = 0;

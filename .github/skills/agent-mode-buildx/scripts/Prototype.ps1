@@ -217,8 +217,6 @@ try {
     $env:DOTNET_AGENT_MODE = $null
     $env:DOTNET_AGENT_BUILDX_PATH = $buildx
     $env:DOTNET_CLI_HOME = Join-Path $stateDirectory 'home'
-    $routingDirectory = Join-Path $stateDirectory "routing\$Action-$([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss'))-$PID"
-    $env:DOTNET_AGENT_LOG_DIR = $routingDirectory
 
     if ($Action -eq 'Stop') { Stop-SampleServer; Stop-PrivateSdkServers; return }
     if ($Action -eq 'Shell') {
@@ -328,7 +326,8 @@ try {
         $null = Run-Check 'rebuild' @('build', '--no-incremental') $true
         $null = Run-Check 'logo-and-aliases' @('build', '--nologo', '--configuration=Debug', "-f:$targetFramework",
             '-v:minimal', '/p:SkipBunCompile=true', '--no-restore') $true
-        $null = Run-Check 'no-dependencies' @('build', '--no-dependencies', '--no-restore') $false
+        $fallback = Run-Check 'no-dependencies' @('build', '--no-dependencies', '--no-restore') $false
+        Check ($fallback.StdErr.Contains('Agent mode: using the stock SDK (unsupported-option:no-dependencies).')) 'The default console fallback notice was not emitted.'
         $null = Run-Check 'force-restore' @('build', '--force') $false
         $null = Run-Check 'custom-target' @('build', '/t:Build', '--no-restore') $false
         $null = Run-Check 'dependency-property' @('build', '/p:BuildProjectReferences=false', '--no-restore') $false
@@ -358,12 +357,6 @@ try {
         Check ((Get-FileHash -LiteralPath $longReference).Hash -eq (Get-FileHash -LiteralPath $copiedReference).Hash) 'Long-path assembly resolution/copy changed its bytes.'
         Stop-SampleServer
         Check (@(Get-SampleServers).Count -eq 0) 'The sample server did not exit.'
-        $routingRecords = @(Get-ChildItem -LiteralPath $routingDirectory -Filter '*.json' | ForEach-Object {
-            Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json
-        })
-        Check (@($routingRecords | Where-Object { $_.Route -eq 'sdk' -and $_.Reason -eq 'unsupported-option:no-dependencies' }).Count -gt 0) 'The SDK fallback was not recorded.'
-        Check (@($routingRecords | Where-Object { $_.Route -eq 'buildx' -and $_.ExitCode -ne 0 }).Count -gt 0) 'The accelerator failure was not recorded.'
-        Check (@($routingRecords | Where-Object Reason -EQ 'recursive-bypass').Count -gt 0) 'Nested SDK recursion bypass was not recorded.'
         Stop-PrivateSdkServers
         $serverStopped = $true
 
@@ -388,7 +381,6 @@ try {
             TargetFramework = $targetFramework
             SdkTargetFramework = $identity.SdkTargetFramework
             TelemetryOptOut = $env:DOTNET_CLI_TELEMETRY_OPTOUT
-            RoutingLogDirectory = $routingDirectory
             Checks = $results
         } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $stateDirectory 'verification.json')
         Write-Host "Passed $($results.Count) real-package/control checks. Evidence: $stateDirectory\verification.json"

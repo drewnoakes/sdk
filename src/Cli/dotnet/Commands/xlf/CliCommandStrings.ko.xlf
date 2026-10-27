@@ -82,11 +82,6 @@
         <target state="new">Agent mode buildx command: {0}</target>
         <note>{0} is the command line, shown only at detailed/diagnostic verbosity. {Locked="buildx"}</note>
       </trans-unit>
-      <trans-unit id="AgentModeBuildxInvalidLogPath">
-        <source>Set {0} to an absolute directory for local Agent Mode routing logs.</source>
-        <target state="new">Set {0} to an absolute directory for local Agent Mode routing logs.</target>
-        <note>{0} is an environment variable name.</note>
-      </trans-unit>
       <trans-unit id="AgentModeBuildxInvalidPath">
         <source>Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</source>
         <target state="new">Set {0} to the absolute path of the trusted buildx executable or managed assembly installed for this prototype.</target>

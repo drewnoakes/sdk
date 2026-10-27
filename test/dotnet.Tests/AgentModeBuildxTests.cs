@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Text.Json;
 using Microsoft.DotNet.Cli.Utils;
 using Moq;
 
@@ -263,11 +262,13 @@ public class AgentModeBuildxTests : SdkTest
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void TheRedistHostDispatchesAndPreservesTheChildExitCode(bool aot)
+    [DataRow(false, "minimal")]
+    [DataRow(true, "minimal")]
+    [DataRow(false, "diag")]
+    [DataRow(true, "diag")]
+    public void TheRedistHostDispatchesAndPreservesTheChildExitCode(bool aot, string verbosity)
     {
-        var asset = TestAssetsManager.CopyTestAsset("TestAppSimple", identifier: aot.ToString()).WithSource();
+        var asset = TestAssetsManager.CopyTestAsset("TestAppSimple", identifier: aot + verbosity).WithSource();
         File.WriteAllText(Path.Combine(asset.Path, "Program.cs"), """
             System.Console.WriteLine("buildx-probe");
             System.Console.WriteLine(System.Environment.GetEnvironmentVariable("DOTNET_AGENT_DISPATCH_BYPASS"));
@@ -282,7 +283,6 @@ public class AgentModeBuildxTests : SdkTest
         string probe = Path.Combine(
             OutputPathCalculator.FromProject(asset.Path).GetOutputDirectory(configuration: "Debug"), "TestAppSimple.dll");
 
-        string logDirectory = Path.Combine(asset.Path, "routing-log");
         var result = new DotnetCommand(Log)
             .WithWorkingDirectory(asset.Path)
             .WithEnvironmentVariable("DOTNET_CLI_ENABLEAOT", aot.ToString())
@@ -291,17 +291,17 @@ public class AgentModeBuildxTests : SdkTest
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BypassVariable, "")
             .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, probe)
-            .WithEnvironmentVariable(AgentModeBuildxLog.DirectoryVariable, logDirectory)
-            .Execute("build", "-c", "Release", "-p:Example=hello world", "-v:diag");
+            .Execute("build", "-c", "Release", "-p:Example=hello world", "-v:" + verbosity);
 
         result.ExitCode.Should().Be(37);
-        string record = File.ReadAllText(Directory.GetFiles(logDirectory, "*.json").Single());
-        using JsonDocument document = JsonDocument.Parse(record);
-        document.RootElement.GetProperty("Route").GetString().Should().Be("buildx");
-        document.RootElement.GetProperty("Reason").GetString().Should().Be("supported");
-        document.RootElement.GetProperty("ExitCode").GetInt32().Should().Be(37);
-        record.Should().NotContain("hello world");
-        result.StdErr.Should().Contain("hello world");
+        if (verbosity == "diag")
+        {
+            result.StdErr.Should().Contain("hello world");
+        }
+        else
+        {
+            result.StdErr.Should().NotContain("hello world");
+        }
         result.StdOut.Should().Contain("buildx-probe")
             .And.Contain("1" + Environment.NewLine)
             .And.Contain(asset.Path)
@@ -312,25 +312,29 @@ public class AgentModeBuildxTests : SdkTest
         if (!SdkTestContext.IsLocalized())
         {
             result.StdOut.Should().Contain("Agent mode: using experimental buildx.");
-            result.StdErr.Should().Contain("Agent mode buildx command:");
+            if (verbosity == "diag")
+            {
+                result.StdErr.Should().Contain("Agent mode buildx command:");
+            }
         }
     }
 
     [TestMethod]
-    public void RecordsStockFallbackAndPreservesFailure()
+    [DataRow("minimal")]
+    [DataRow("detailed")]
+    public void ExplainsStockFallbackOnTheConsoleAndPreservesFailure(string verbosity)
     {
-            var asset = TestAssetsManager.CopyTestAsset("TestAppSimple").WithSource();
-            string logDirectory = Path.Combine(asset.Path, "routing-log");
-            var result = new DotnetCommand(Log).WithWorkingDirectory(asset.Path)
-                .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "on")
-                .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, "not-a-tool")
-                .WithEnvironmentVariable(AgentModeBuildxLog.DirectoryVariable, logDirectory)
-                .Execute("build", "--no-dependencies", "--no-restore");
-            result.ExitCode.Should().NotBe(0);
-            result.StdOut.Should().NotContain("Agent mode: using experimental buildx.");
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(Directory.GetFiles(logDirectory, "*.json").Single()));
-            document.RootElement.GetProperty("Route").GetString().Should().Be("sdk");
-            document.RootElement.GetProperty("Reason").GetString().Should().Be("unsupported-option:no-dependencies");
-            document.RootElement.GetProperty("ExitCode").GetInt32().Should().Be(result.ExitCode);
+        var asset = TestAssetsManager.CopyTestAsset("TestAppSimple", identifier: verbosity).WithSource();
+        var result = new DotnetCommand(Log).WithWorkingDirectory(asset.Path)
+            .WithEnvironmentVariable(AgentModeBuildxDispatcher.ModeVariable, "on")
+            .WithEnvironmentVariable(AgentModeBuildxDispatcher.BuildxPathVariable, "not-a-tool")
+            .Execute("build", "--no-dependencies", "--no-restore", "-v:" + verbosity);
+        result.ExitCode.Should().NotBe(0);
+        result.StdOut.Should().NotContain("Agent mode: using experimental buildx.");
+        result.StdErr.Should().Contain("unsupported-option:no-dependencies").And.NotContain("not-a-tool");
+        if (!SdkTestContext.IsLocalized())
+        {
+            result.StdErr.Should().Contain("Agent mode: using the stock SDK (unsupported-option:no-dependencies).");
+        }
     }
 }

@@ -37,8 +37,8 @@ do not remove the platform guard without completing the port and real-platform c
    environment as documented. Preserve the consumer's SDK selection, and confirm that
    the selected SDK is this custom redist before expecting routing.
    The [compatibility matrix and evaluation guide](../../../documentation/project-docs/agent-mode.md#evaluation-setup-and-routing-diagnostics)
-   explain supported argument translations and `DOTNET_AGENT_LOG_DIR`. Use a separate
-   absolute routing-log directory per evaluation; stock fallbacks are not buildx wins.
+   explain supported argument translations and console routing notices. Retain the
+   agent's captured console output for evaluation; stock fallbacks are not buildx wins.
    Only use detailed/diagnostic command-line output when property values are safe to log.
 4. Use the repository [run-tests](../run-tests/SKILL.md) workflow with the
    `AgentModeBuildxTests` filter for SDK regression tests. The real-package verification

@@ -268,7 +268,6 @@ Running SDK-side Agent Mode dispatch directly in the native CLI is
 | `DOTNET_AGENT_MODE=on` | Explicit local opt-in, even without a detected agent. Requires valid provisioning. Boolean `true` / `1` also work. |
 | `DOTNET_AGENT_MODE=off` | Stock SDK behavior. Boolean `false` / `0` also work. |
 | `DOTNET_AGENT_DISPATCH_BYPASS=1` | Stock behavior in nested SDK invocations; overrides mode validation. |
-| `DOTNET_AGENT_LOG_DIR` | Optional absolute directory for local per-build routing records, independent of telemetry upload. The setup script enables this under `artifacts\agent-mode\routing`. |
 
 For a different consumer, prepend the custom redist to **that process's** PATH and set
 both the absolute tool path and the scoped `FASTBUILD_SERVER_EXE` launcher override.
@@ -333,31 +332,26 @@ selects an older SDK, routing will not be added by changing PATH alone. Confirm 
 the reported version is the custom SDK, and keep the actual agent detection markers;
 use `DOTNET_AGENT_MODE=on` only for an explicitly forced control.
 
-`DOTNET_AGENT_LOG_DIR` produces a unique JSON file per completed direct build
-invocation, including stock controls, with schema version, UTC timestamp, process ID,
-route (`buildx`, `sdk`, or `error`), stable reason code, selected SDK directory, and
-exit code. It stores **no argument arrays or property values** and does not upload
-anything. Set a new absolute directory per evaluation run, retain it with harness
-results, and exclude `recursive-bypass` records when counting top-level attempts.
-An invalid/unwritable configured logging location is an explicit error, not a
-success-shaped fallback.
+Routing is reported on the console, where the agent can see it in the command result.
+An accelerated invocation prints `Agent mode: using experimental buildx.` at normal
+verbosity. When Agent Mode is enabled but declines an incompatible request, stderr
+prints `Agent mode: using the stock SDK (<reason>).` before the original SDK handler
+runs. Stable reason codes such as `unsupported-option:no-dependencies` explain why
+acceleration was not used. Nested bypass invocations do not repeat these notices;
+ordinary no-agent/disabled/unprovisioned calls stay quiet unless verbosity is raised.
+Query stdout stays machine-readable.
 
-For example, summarize one run in the configured shell:
+At detailed/diagnostic build verbosity (for example `-v:diag`), stderr also includes
+the exact translated buildx command **only when it is launched**. There is deliberately
+no fictional buildx command for an incompatible request. High-verbosity output can
+contain property values/secrets; do not enable/share it indiscriminately.
 
-```powershell
-Get-ChildItem -LiteralPath $env:DOTNET_AGENT_LOG_DIR -Filter '*.json' |
-  ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json } |
-  Group-Object Route, Reason, ExitCode | Select-Object Count, Name
-```
-
-At detailed/diagnostic build verbosity (for example `-v:diag`), stderr includes the
-translated buildx command **only when buildx is launched**, or the stock-route reason
-when it is declined. There is deliberately no fictional buildx command for an
-incompatible request. High-verbosity console logs can contain property values/secrets;
-do not enable/share them indiscriminately. Default/query stdout remains unchanged.
-`buildx` in these records means the real client was selected, not proof of resident
-engine use or a performance gain: the package's own logs may show an internal stock
-build, a no-op, or resident execution.
+The SDK writes no separate Agent Mode routing files. For later evaluation, use the
+agent/harness's captured stdout, stderr, and exit code. The prototype's own `Verify`
+script still retains its test logs/results; those are not SDK runtime logging.
+A buildx notice means the real client was selected, not proof of resident engine use
+or a performance gain: the package's own output may show an internal stock build,
+a no-op, or resident execution.
 
 ## Follow-up work
 

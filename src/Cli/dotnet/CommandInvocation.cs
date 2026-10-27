@@ -28,9 +28,6 @@ internal static class CommandInvocation
     {
         Debug.Assert(parseResult.CanBeInvoked());
         int exitCode = 1;
-#if !CLI_AOT
-        string? agentModeReason = null;
-#endif
         using var _ = Activities.Source.StartActivity("invocation");
         try
         {
@@ -41,10 +38,9 @@ internal static class CommandInvocation
             // See documentation/project-docs/agent-mode.md#nativeaot-sdk-side-agent-mode-dispatch.
             if (AgentModeBuildxDispatcher.TryExecute(parseResult, arguments, out exitCode, out string reason))
             {
-                agentModeReason = reason;
                 return exitCode;
             }
-            agentModeReason = reason;
+            AgentModeBuildxDispatcher.ReportFallback(parseResult, reason);
 #endif
             exitCode = Parser.Invoke(parseResult);
             if (parseResult.Errors.Any())
@@ -64,15 +60,6 @@ internal static class CommandInvocation
         {
             exitCode = Parser.ExceptionHandler(exception, parseResult);
         }
-#if !CLI_AOT
-        finally
-        {
-            if (arguments is ["build", ..])
-            {
-                AgentModeBuildxLog.Write(parseResult, agentModeReason ?? "dispatch-error", exitCode);
-            }
-        }
-#endif
         return exitCode;
 
         int AdjustExitCodeForNew()
